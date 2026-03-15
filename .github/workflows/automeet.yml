@@ -55,6 +55,7 @@ jobs:
           DISPLAY: :99
           VIDEO_SIZE: 1280x720
           MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
+          MEET_ACCOUNT_COOKIES: ${{ secrets.MEET_ACCOUNT_COOKIES }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -69,6 +70,7 @@ jobs:
           DISPLAY: :99
           VIDEO_SIZE: 1280x720
           MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
+          MEET_ACCOUNT_COOKIES: ${{ secrets.MEET_ACCOUNT_COOKIES }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
