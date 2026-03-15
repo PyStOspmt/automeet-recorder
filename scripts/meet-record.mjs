@@ -48,16 +48,21 @@ function wait(ms) {
 async function clickByText(page, texts, { timeoutMs = 15_000 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    for (const t of texts) {
-      const escaped = t.replaceAll("'", "\\'");
-      const handle = await page.$x(
-        `//button[.//span[contains(normalize-space(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')), '${escaped.toLowerCase()}')]]`
-      );
-      if (handle?.[0]) {
-        await handle[0].click();
-        return true;
+    const clicked = await page.evaluate((texts) => {
+      const targets = texts.map((t) => String(t).toLowerCase().trim()).filter(Boolean);
+      const buttons = Array.from(document.querySelectorAll("button"));
+      for (const b of buttons) {
+        const txt = String(b.innerText ?? "").toLowerCase();
+        for (const t of targets) {
+          if (txt.includes(t)) {
+            b.click();
+            return true;
+          }
+        }
       }
-    }
+      return false;
+    }, texts);
+    if (clicked) return true;
     await wait(250);
   }
   return false;
@@ -183,7 +188,7 @@ async function main() {
     await page.setViewport({ width: 1280, height: 720 });
     await page.goto(session.meetUrl, { waitUntil: "networkidle2" });
 
-    await page.waitForTimeout(1000);
+    await wait(1000);
 
     const nameInput =
       (await page.$('input[aria-label*="name" i]')) ??
@@ -275,4 +280,3 @@ main().catch((err) => {
   console.error(err?.stack ?? String(err));
   process.exitCode = 1;
 });
-
