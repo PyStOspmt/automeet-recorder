@@ -8,9 +8,12 @@
   },
   "scripts": {
     "drive:smoke": "node ./scripts/drive-smoke-upload.mjs",
-    "drive:oauth:token": "node ./scripts/oauth-generate-refresh-token.mjs"
+    "drive:oauth:token": "node ./scripts/oauth-generate-refresh-token.mjs",
+    "record:once": "node ./scripts/meet-record.mjs",
+    "schedule:run": "node ./scripts/run-scheduler.mjs"
   },
   "dependencies": {
-    "googleapis": "^150.0.0"
+    "googleapis": "^150.0.0",
+    "puppeteer": "^24.15.0"
   }
 }

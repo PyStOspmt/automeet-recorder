@@ -1,5 +1,7 @@
 # AutoMeet Recorder
 
+Використовуй тільки там, де є згода на запис/конспект (вимога законів/політик закладу).
+
 ## Drive smoke test
 
 ### GitHub Secrets
@@ -44,3 +46,32 @@ npm run drive:oauth:token
 - GitHub → Actions → `Drive smoke upload` → Run workflow
 
 Після успішного запуску в папці на Google Drive зʼявиться файл `smoke-*.txt`.
+
+## Запуск запису Meet (гість, відео + субтитри)
+
+### Secrets
+
+- `MEET_GUEST_NAME`: імʼя, під яким бот заходить (наприклад `Student`).
+- `SCHEDULE_JSON`: JSON (або Base64 від JSON) з розкладом.
+
+Формат `SCHEDULE_JSON`:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "math-2026-03-16-0900",
+      "title": "Math",
+      "meetUrl": "https://meet.google.com/xxx-xxxx-xxx",
+      "start": "2026-03-16T09:00:00+02:00",
+      "end": "2026-03-16T10:30:00+02:00"
+    }
+  ]
+}
+```
+
+### Workflows
+
+- `AutoMeet Recorder`:
+  - `schedule` запускається кожні 5 хв і підхоплює сесію, якщо “зараз” потрапляє в вікно `start/end`
+  - `workflow_dispatch` дає змогу протестувати одну сесію вручну (Meet URL задається інпутом)

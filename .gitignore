@@ -3,3 +3,5 @@ node_modules/
 *.log
 service-account*.json
 google-service-account*.json
+out/
+session.json

@@ -1,0 +1,72 @@
+name: AutoMeet Recorder
+
+on:
+  workflow_dispatch:
+    inputs:
+      meet_url:
+        description: Google Meet URL
+        required: true
+        type: string
+      title:
+        description: Session title
+        required: false
+        default: Manual session
+        type: string
+      record_min:
+        description: Max duration (minutes)
+        required: false
+        default: "90"
+        type: string
+  schedule:
+    - cron: "*/5 * * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y xvfb ffmpeg
+
+      - name: Start Xvfb
+        run: Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
+
+      - name: Run scheduled session
+        if: github.event_name == 'schedule'
+        env:
+          DISPLAY: :99
+          VIDEO_SIZE: 1280x720
+          MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          SCHEDULE_JSON: ${{ secrets.SCHEDULE_JSON }}
+          SCHEDULE_GRACE_MIN: "3"
+        run: npm run schedule:run
+
+      - name: Run manual session
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DISPLAY: :99
+          VIDEO_SIZE: 1280x720
+          MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          MEET_URL: ${{ inputs.meet_url }}
+          SESSION_TITLE: ${{ inputs.title }}
+          RECORD_MIN: ${{ inputs.record_min }}
+        run: npm run record:once
+
