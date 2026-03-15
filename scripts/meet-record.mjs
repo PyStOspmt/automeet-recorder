@@ -86,18 +86,32 @@ async function clickByAriaContains(page, fragments, { timeoutMs = 15_000 } = {})
 async function waitForAriaButtonContains(page, fragments, { timeoutMs = 60_000 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const found = await page.evaluate((fragments) => {
-      const frags = fragments.map((f) => String(f).toLowerCase());
-      const btns = Array.from(document.querySelectorAll("button"));
-      for (const b of btns) {
-        const label = String(b.getAttribute("aria-label") ?? "").toLowerCase();
-        if (!label) continue;
-        for (const f of frags) {
-          if (label.includes(f)) return true;
+    let found = false;
+    try {
+      found = await page.evaluate((fragments) => {
+        const frags = fragments.map((f) => String(f).toLowerCase());
+        const btns = Array.from(document.querySelectorAll("button"));
+        for (const b of btns) {
+          const label = String(b.getAttribute("aria-label") ?? "").toLowerCase();
+          if (!label) continue;
+          for (const f of frags) {
+            if (label.includes(f)) return true;
+          }
         }
+        return false;
+      }, fragments);
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      if (
+        msg.includes("Execution context was destroyed") ||
+        msg.includes("Cannot find context with specified id") ||
+        msg.includes("Target closed")
+      ) {
+        await wait(250);
+        continue;
       }
-      return false;
-    }, fragments);
+      throw e;
+    }
     if (found) return true;
     await wait(250);
   }
@@ -273,6 +287,10 @@ async function main() {
       ],
       { timeoutMs: 20_000 }
     );
+
+    try {
+      await page.waitForNavigation({ timeout: 10_000, waitUntil: "domcontentloaded" });
+    } catch {}
 
     const inCall = await waitForAriaButtonContains(
       page,
