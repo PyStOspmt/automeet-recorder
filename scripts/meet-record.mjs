@@ -434,10 +434,25 @@ async function main() {
     }
 
     const stopAt = Math.min(endMs, Date.now() + 6 * 60 * 60_000);
+    let consecutiveMisses = 0;
     while (Date.now() < stopAt) {
-      await wait(1000);
-      const leave = await page.$('button[aria-label*="leave call" i]');
-      if (!leave) break;
+      await wait(2000);
+      const stillInCall = await page.evaluate(() => {
+        const frags = ["leave call", "leave meeting", "hang up", "покин", "вийти", "заверш", "покинуть", "выйти"];
+        const btns = Array.from(document.querySelectorAll("button"));
+        for (const b of btns) {
+          const label = String(b.getAttribute("aria-label") ?? "").toLowerCase();
+          if (label && frags.some(f => label.includes(f))) return true;
+        }
+        return false;
+      });
+      
+      if (!stillInCall) {
+        consecutiveMisses++;
+        if (consecutiveMisses > 3) break; // Break only if button is missing for 3 checks (6+ seconds) to avoid DOM refresh issues
+      } else {
+        consecutiveMisses = 0;
+      }
     }
   } finally {
     await stopFfmpeg(ffmpegProc);
