@@ -216,7 +216,28 @@ async function stopFfmpeg(proc) {
   });
 }
 
-async function enableCaptions(page) {
+async function clickCloseButtons(page) {
+  try {
+    await page.evaluate(() => {
+      const closeButtons = Array.from(document.querySelectorAll('button'));
+      for (const btn of closeButtons) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        // Look for close buttons on toasts and translate UI
+        if (label.includes('close') || label.includes('закрити') || label.includes('закрыть') || label.includes('dismiss')) {
+          // Check if it's inside a toast or dialog or the top bar
+          const isToast = btn.closest('[role="alert"], [data-is-toast="true"], .geSSfc, .jRlwIf, #google_translate_element');
+          if (isToast) {
+            btn.click();
+          }
+        }
+      }
+      
+      // Explicitly try to close translate popup if standard X is found
+      const translateClose = document.querySelector('.goog-te-banner-frame .goog-close-link');
+      if (translateClose) translateClose.click();
+    });
+  } catch (e) {}
+}
   await page.mouse.move(500, 500); // reveal control bar
   await wait(500);
   
@@ -230,9 +251,18 @@ async function enableCaptions(page) {
 
 async function setCaptionLanguageUkrainian(page) {
   try {
-    await page.mouse.move(500, 500); // reveal control bar
+    await page.mouse.move(500, 500);
     await wait(500);
     
+    // First try the quick on-screen dropdown if available
+    const quickLangDropdown = await clickByText(page, ["Англійська", "English", "Английский"], { timeoutMs: 2000 });
+    if (quickLangDropdown) {
+      await wait(1000);
+      await clickByText(page, ["Українська", "Ukrainian", "Украинский"], { timeoutMs: 2000 });
+      return;
+    }
+
+    // Fallback to settings menu
     const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 3000 });
     if (!openedMenu) return;
     await wait(500);
@@ -255,6 +285,23 @@ async function setCaptionLanguageUkrainian(page) {
   } catch (e) {
     console.error("Could not set caption language:", e.message);
   }
+}
+
+async function pinPresentation(page) {
+  try {
+    await page.evaluate(() => {
+      // Look for buttons that say "Pin" or "Закріпити" and are related to presentations
+      const btns = Array.from(document.querySelectorAll('button'));
+      for (const btn of btns) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if ((label.includes('pin') || label.includes('закріпит')) && 
+            (label.includes('presentation') || label.includes('презентац'))) {
+          btn.click();
+          break;
+        }
+      }
+    });
+  } catch (e) {}
 }
 
 async function dumpDebug(page, outDir, tag) {
@@ -508,28 +555,55 @@ async function main() {
       const scan = () => {
         const lines = [];
         
-        // Target Meet's specific caption blocks to extract speaker and text
-        const captionNodes = document.querySelectorAll('.TBMuR, .a4cQT, .CNusmb');
+        // Try specific caption classes first
+        let foundSpecific = false;
+        const captionNodes = document.querySelectorAll('.TBMuR, .a4cQT, .CNusmb, .iTTPOb');
         if (captionNodes.length > 0) {
           captionNodes.forEach(node => {
+            // Find text nodes that look like captions
+            const textContent = node.innerText || "";
+            if (textContent && !exactIgnore.has(textContent.toLowerCase().trim())) {
+               foundSpecific = true;
+            }
+            
             const speakerNode = node.querySelector('.zs7s8d, .jO7h3c');
+            const speaker = speakerNode ? speakerNode.innerText.trim() : "";
+            
             const textNodes = node.querySelectorAll('.iTTPOb');
-            
-            const speaker = speakerNode ? speakerNode.innerText.trim() : "Unknown";
-            
-            textNodes.forEach(textNode => {
-              const rawText = textNode.innerText || "";
-              const validParts = rawText.split('\n')
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-              
-              if (validParts.length > 0) {
-                lines.push(`${speaker}: ${validParts.join(' ')}`);
-              }
-            });
+            if (textNodes.length > 0) {
+              textNodes.forEach(textNode => {
+                const rawText = textNode.innerText || "";
+                const validParts = rawText.split('\n')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+                
+                if (validParts.length > 0) {
+                  lines.push(speaker ? `${speaker}: ${validParts.join(' ')}` : validParts.join(' '));
+                }
+              });
+            } else {
+               // If no specific text node inside, just use the parent's text
+               const validParts = textContent.split('\n')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+               if (validParts.length > 0 && !textContent.includes(speaker)) {
+                  lines.push(speaker ? `${speaker}: ${validParts.join(' ')}` : validParts.join(' '));
+               }
+            }
           });
         }
-        // Removed aria-live fallback as it catches all UI announcements instead of actual captions
+        
+        // Fallback to aria-live if no specific caption nodes found
+        if (!foundSpecific) {
+          const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+          lives.forEach(live => {
+             const rawText = live.innerText || "";
+             const validParts = rawText.split('\n')
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+             lines.push(...validParts);
+          });
+        }
 
         // Final filter just in case
         lines
@@ -550,6 +624,9 @@ async function main() {
     const stopAt = Math.min(endMs, Date.now() + 6 * 60 * 60_000);
     let consecutiveMisses = 0;
     while (Date.now() < stopAt) {
+      await clickCloseButtons(page);
+      await pinPresentation(page);
+      
       await wait(2000);
       const stillInCall = await page.evaluate(() => {
         const frags = ["leave call", "leave meeting", "hang up", "покин", "вийти", "заверш", "покинуть", "выйти"];
