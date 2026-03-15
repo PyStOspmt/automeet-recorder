@@ -249,6 +249,7 @@ async function main() {
   const titleSafe = sanitizeForPath(optionalEnv("SESSION_TITLE_SAFE") ?? session.title);
   const skipRecording = optionalEnv("SKIP_RECORDING") === "1";
   const skipUpload = optionalEnv("SKIP_UPLOAD") === "1";
+  const debugSteps = optionalEnv("DEBUG_STEPS") === "1";
 
   const startMs = Date.parse(session.start);
   const endMs = Date.parse(session.end);
@@ -289,6 +290,7 @@ async function main() {
     await page.goto(session.meetUrl, { waitUntil: "networkidle2" });
 
     await wait(1000);
+    if (debugSteps) await dumpDebug(page, outDir, "01-loaded");
 
     if (await detectAccessBlock(page)) {
       await dumpDebug(page, outDir, "access-block");
@@ -299,14 +301,20 @@ async function main() {
 
     const nameInput =
       (await page.$('input[aria-label*="name" i]')) ??
+      (await page.$('input[placeholder*="name" i]')) ??
       (await page.$('input[type="text"]'));
 
     if (nameInput) {
       await nameInput.click({ clickCount: 3 });
       await nameInput.type(guestName, { delay: 15 });
+      try {
+        await page.keyboard.press("Enter");
+      } catch {}
     }
+    if (debugSteps) await dumpDebug(page, outDir, "02-name");
 
     await ensureMicCamOff(page);
+    if (debugSteps) await dumpDebug(page, outDir, "03-miccam");
 
     await clickByText(
       page,
@@ -324,6 +332,7 @@ async function main() {
       { timeoutMs: 6_000 }
     );
     await wait(500);
+    if (debugSteps) await dumpDebug(page, outDir, "04-continue");
 
     await clickByText(
       page,
@@ -339,12 +348,14 @@ async function main() {
       ],
       { timeoutMs: 20_000 }
     );
+    if (debugSteps) await dumpDebug(page, outDir, "05-joinclick");
 
     try {
       await page.waitForNavigation({ timeout: 10_000, waitUntil: "domcontentloaded" });
     } catch {}
 
     await clickByText(page, ["Got it", "OK", "Okay", "Зрозуміло", "Гаразд", "Добре", "Понятно"], { timeoutMs: 3_000 });
+    if (debugSteps) await dumpDebug(page, outDir, "06-postjoin");
 
     const inCall = await waitForAriaButtonContains(
       page,

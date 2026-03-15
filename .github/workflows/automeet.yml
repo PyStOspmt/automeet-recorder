@@ -17,6 +17,14 @@ on:
         required: false
         default: "90"
         type: string
+      debug:
+        description: Upload step screenshots/HTML
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
   schedule:
     - cron: "*/5 * * * *"
 
@@ -68,10 +76,18 @@ jobs:
           MEET_URL: ${{ inputs.meet_url }}
           SESSION_TITLE: ${{ inputs.title }}
           RECORD_MIN: ${{ inputs.record_min }}
+          DEBUG_STEPS: ${{ inputs.debug == 'true' && '1' || '' }}
         run: npm run record:once
 
       - name: Upload debug artifacts
         if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-out
+          path: out/**/debug-*.{png,html}
+
+      - name: Upload debug artifacts (manual)
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.debug == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: debug-out
