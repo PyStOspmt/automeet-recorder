@@ -31,10 +31,11 @@ npm run drive:oauth:token
 
 3) Відкрий URL з термінала, пройди consent, після редіректу скрипт виведе `refresh_token`. Його поклади в `GOOGLE_OAUTH_REFRESH_TOKEN`.
 
+Примітка: workflow `Drive smoke upload` у GitHub Actions форсує OAuth (щоб випадково не впасти в service account quota).
+
 
 #### Варіант 2 (Workspace): Service Account + Shared Drive
 
-Service accounts можуть падати з помилкою про quota, якщо вони не мають сховища. Для цього варіанту потрібен Shared Drive або domain-wide delegation.
 
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: або сирий JSON service account, або Base64 від цього JSON.
 

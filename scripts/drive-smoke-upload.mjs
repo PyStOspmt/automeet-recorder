@@ -12,6 +12,10 @@ function optionalEnv(name) {
   return v;
 }
 
+function missing(names) {
+  return names.filter((n) => !process.env[n]);
+}
+
 function normalizeFolderId(folderIdRaw) {
   const trimmed = folderIdRaw.trim();
   const withoutQuery = trimmed.split("?")[0];
@@ -34,11 +38,35 @@ function parseRefreshToken(raw) {
 }
 
 async function buildAuth() {
+  const forced = (optionalEnv("DRIVE_AUTH_MODE") ?? "").toLowerCase();
   const refreshToken = optionalEnv("GOOGLE_OAUTH_REFRESH_TOKEN");
   const clientId = optionalEnv("GOOGLE_OAUTH_CLIENT_ID");
   const clientSecret = optionalEnv("GOOGLE_OAUTH_CLIENT_SECRET");
 
-  if (refreshToken && clientId && clientSecret) {
+  const anyOauth = Boolean(refreshToken || clientId || clientSecret);
+  const allOauth = Boolean(refreshToken && clientId && clientSecret);
+
+  if (forced === "oauth" && !allOauth) {
+    throw new Error(
+      `DRIVE_AUTH_MODE=oauth but missing env: ${missing([
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "GOOGLE_OAUTH_REFRESH_TOKEN"
+      ]).join(", ")}`
+    );
+  }
+
+  if (anyOauth && !allOauth) {
+    throw new Error(
+      `OAuth env partially set, missing: ${missing([
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "GOOGLE_OAUTH_REFRESH_TOKEN"
+      ]).join(", ")}`
+    );
+  }
+
+  if (allOauth) {
     const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
     oauth2.setCredentials({ refresh_token: parseRefreshToken(refreshToken) });
     return { auth: oauth2, mode: "oauth" };
@@ -65,6 +93,8 @@ async function main() {
     `AutoMeet Recorder Drive smoke test\n` +
     `createdAt=${now.toISOString()}\n` +
     `runner=${process.env.GITHUB_REPOSITORY ?? "local"}\n`;
+
+  console.log(JSON.stringify({ authMode: mode, step: "upload_start" }));
 
   const res = await drive.files.create({
     requestBody: {
