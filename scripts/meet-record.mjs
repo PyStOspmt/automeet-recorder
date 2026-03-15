@@ -198,10 +198,13 @@ async function detectAccessBlock(page) {
       "can’t join this meeting",
       "ask your host",
       "sign in with the google account your host invited",
+      "instead of waiting to be let in, sign in",
+      "sign in with your google account",
       "must be signed in",
       "not allowed to join",
       "ви не можете приєднатися",
       "увійдіть в обліковий запис google",
+      "увійдіть в обліковий запис google, який запросив вас організатор",
       "потрібно ввійти",
       "доступ заборонено"
     ];
@@ -212,6 +215,8 @@ async function detectAccessBlock(page) {
 async function main() {
   const session = readSession();
   const titleSafe = sanitizeForPath(optionalEnv("SESSION_TITLE_SAFE") ?? session.title);
+  const skipRecording = optionalEnv("SKIP_RECORDING") === "1";
+  const skipUpload = optionalEnv("SKIP_UPLOAD") === "1";
 
   const startMs = Date.parse(session.start);
   const endMs = Date.parse(session.end);
@@ -352,7 +357,9 @@ async function main() {
       obs.observe(live, { childList: true, subtree: true, characterData: true });
     });
 
-    ffmpegProc = startFfmpeg({ display, videoSize, outFile: videoPath });
+    if (!skipRecording) {
+      ffmpegProc = startFfmpeg({ display, videoSize, outFile: videoPath });
+    }
 
     const stopAt = Math.min(endMs, Date.now() + 6 * 60 * 60_000);
     while (Date.now() < stopAt) {
@@ -364,6 +371,11 @@ async function main() {
     await stopFfmpeg(ffmpegProc);
     captionsStream.end();
     await browser.close();
+  }
+
+  if (skipUpload) {
+    console.log(JSON.stringify({ ok: true, skippedUpload: true, outDir }));
+    return;
   }
 
   const drive = await getDriveClient();
