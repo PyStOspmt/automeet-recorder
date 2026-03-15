@@ -31,7 +31,10 @@ function readSession() {
     if (s?.meetUrl) {
       try {
         const u = new URL(String(s.meetUrl));
+        const authuser = u.searchParams.get("authuser");
         u.search = "";
+        if (authuser) u.searchParams.set("authuser", authuser);
+        u.searchParams.set("hl", "uk");
         s.meetUrl = u.toString();
       } catch {}
     }
@@ -45,7 +48,10 @@ function readSession() {
   let cleanMeetUrl = meetUrl;
   try {
     const u = new URL(meetUrl);
+    const authuser = u.searchParams.get("authuser");
     u.search = "";
+    if (authuser) u.searchParams.set("authuser", authuser);
+    u.searchParams.set("hl", "uk");
     cleanMeetUrl = u.toString();
   } catch {}
   return {
@@ -503,25 +509,27 @@ async function main() {
         const lines = [];
         
         // Target Meet's specific caption blocks to extract speaker and text
-        const speakerNodes = document.querySelectorAll('.a4cQT, [jsname="t8xIwc"], .iTTPOb');
-        if (speakerNodes.length > 0) {
-          speakerNodes.forEach(node => {
-            const rawText = node.innerText || "";
-            const validParts = rawText.split('\n')
-              .map(s => s.trim())
-              .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+        const captionNodes = document.querySelectorAll('.TBMuR, .a4cQT, .CNusmb');
+        if (captionNodes.length > 0) {
+          captionNodes.forEach(node => {
+            const speakerNode = node.querySelector('.zs7s8d, .jO7h3c');
+            const textNodes = node.querySelectorAll('.iTTPOb');
             
-            if (validParts.length > 0) {
-              lines.push(validParts.join(': '));
-            }
-          });
-        } else {
-          // Fallback to live regions if specific classes not found
-          const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
-          lives.forEach(live => {
-            if (live.innerText) lines.push(...live.innerText.split("\n"));
+            const speaker = speakerNode ? speakerNode.innerText.trim() : "Unknown";
+            
+            textNodes.forEach(textNode => {
+              const rawText = textNode.innerText || "";
+              const validParts = rawText.split('\n')
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+              
+              if (validParts.length > 0) {
+                lines.push(`${speaker}: ${validParts.join(' ')}`);
+              }
+            });
           });
         }
+        // Removed aria-live fallback as it catches all UI announcements instead of actual captions
 
         // Final filter just in case
         lines
