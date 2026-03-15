@@ -211,6 +211,9 @@ async function stopFfmpeg(proc) {
 }
 
 async function enableCaptions(page) {
+  await page.mouse.move(500, 500); // reveal control bar
+  await wait(500);
+  
   const ok = await clickByAriaContains(page, ["captions", "caption", "субтитр"], { timeoutMs: 8_000 });
   if (ok) return;
 
@@ -221,6 +224,9 @@ async function enableCaptions(page) {
 
 async function setCaptionLanguageUkrainian(page) {
   try {
+    await page.mouse.move(500, 500); // reveal control bar
+    await wait(500);
+    
     const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 3000 });
     if (!openedMenu) return;
     await wait(500);
@@ -353,6 +359,20 @@ async function main() {
     }
 
     await page.goto(session.meetUrl, { waitUntil: "networkidle2" });
+
+    // Inject strong CSS after load and set translate=no
+    await page.addStyleTag({
+      content: `
+        .skiptranslate, #google_translate_element { display: none !important; }
+        [data-is-toast="true"], [role="alert"], [role="alertdialog"], .geSSfc, .jRlwIf, .g3ZIue { 
+          display: none !important; 
+          opacity: 0 !important; 
+          visibility: hidden !important; 
+          pointer-events: none !important;
+        }
+      `
+    });
+    await page.evaluate(() => document.documentElement.setAttribute("translate", "no"));
 
     await wait(1000);
     if (debugSteps) await dumpDebug(page, outDir, "01-loaded");
@@ -487,7 +507,7 @@ async function main() {
         if (speakerNodes.length > 0) {
           speakerNodes.forEach(node => {
             const rawText = node.innerText || "";
-            const validParts = rawText.split('\\n')
+            const validParts = rawText.split('\n')
               .map(s => s.trim())
               .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
             
@@ -499,7 +519,7 @@ async function main() {
           // Fallback to live regions if specific classes not found
           const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
           lives.forEach(live => {
-            if (live.innerText) lines.push(...live.innerText.split("\\n"));
+            if (live.innerText) lines.push(...live.innerText.split("\n"));
           });
         }
 
