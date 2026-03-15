@@ -68,7 +68,7 @@ async function clickByText(page, texts, { timeoutMs = 15_000 } = {}) {
     try {
       clicked = await page.evaluate((texts) => {
         const targets = texts.map((t) => String(t).toLowerCase().trim()).filter(Boolean);
-        const nodes = Array.from(document.querySelectorAll("button, a, [role='button']"));
+        const nodes = Array.from(document.querySelectorAll("button, a, [role='button'], [role='combobox'], [role='option'], [role='menuitem'], li"));
         for (const n of nodes) {
           const parts = [
             String(n.innerText ?? ""),
@@ -313,8 +313,10 @@ async function main() {
       "--use-fake-ui-for-media-stream",
       "--start-fullscreen",
       "--window-size=1280,720",
-      "--disable-features=Translate,TranslateUI",
-      "--disable-infobars"
+      "--disable-features=Translate",
+      "--disable-translate",
+      "--disable-infobars",
+      "--disable-notifications"
     ]
   });
 
@@ -327,9 +329,16 @@ async function main() {
       style.textContent = `
         .skiptranslate, #google_translate_element { display: none !important; }
         body { top: 0 !important; }
-        [data-is-toast="true"], [role="alert"] { display: none !important; }
+        [data-is-toast="true"], [role="alert"], [role="alertdialog"], .geSSfc, .jRlwIf { 
+          display: none !important; 
+          opacity: 0 !important; 
+          visibility: hidden !important; 
+          pointer-events: none !important;
+        }
       `;
       document.documentElement.appendChild(style);
+      Object.defineProperty(navigator, 'language', { get: () => 'uk-UA' });
+      Object.defineProperty(navigator, 'languages', { get: () => ['uk-UA', 'uk', 'en-US'] });
     });
 
     const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
@@ -443,20 +452,25 @@ async function main() {
       const recent = [];
       const maxRecent = 500;
 
+      const exactIgnore = new Set([
+        "language", "англійська", "английский", "english", "українська", "украинский", "ukrainian",
+        "format_size", "розмір шрифту", "размер шрифта", "font size",
+        "circle", "колір шрифту", "цвет шрифта", "font color",
+        "settings", "відкрити налаштування субтитрів", "открыть настройки субтитров", "caption settings",
+        "close", "закрити", "закрыть"
+      ]);
+
+      const partialIgnore = [
+        "залишилося", "повернення", "вилучили", "додано на головний", 
+        "оцініть якість", "has left", "has joined", "presentation", "is presenting",
+        "долучився", "залишив", "приєднався", "секунд", "покинув", "покинула"
+      ];
+
       const emit = (text) => {
         const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
         if (!t) return;
         
-        // Filter out common system notifications
-        const ignoreList = [
-          "залишилося", "повернення", "вилучили", "додано на головний", 
-          "оцініть якість", "has left", "has joined", "presentation", "is presenting",
-          "долучився", "залишив", "приєднався", "секунд"
-        ];
-        if (ignoreList.some(w => t.toLowerCase().includes(w))) return;
-
         const key = t;
-        // Basic deduplication to avoid emitting same exact line immediately
         if (recent.includes(key)) return;
         recent.push(key);
         if (recent.length > maxRecent) recent.shift();
@@ -468,19 +482,32 @@ async function main() {
       const scan = () => {
         const lines = [];
         
-        // 1. Find explicit caption containers used by Meet
-        const captionNodes = document.querySelectorAll('.iTTPOb, [jsname="t8xIwc"], .a4cQT');
-        captionNodes.forEach(n => {
-          if (n.innerText) lines.push(n.innerText);
-        });
+        // Target Meet's specific caption blocks to extract speaker and text
+        const speakerNodes = document.querySelectorAll('.a4cQT, [jsname="t8xIwc"], .iTTPOb');
+        if (speakerNodes.length > 0) {
+          speakerNodes.forEach(node => {
+            const rawText = node.innerText || "";
+            const validParts = rawText.split('\\n')
+              .map(s => s.trim())
+              .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+            
+            if (validParts.length > 0) {
+              lines.push(validParts.join(': '));
+            }
+          });
+        } else {
+          // Fallback to live regions if specific classes not found
+          const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+          lives.forEach(live => {
+            if (live.innerText) lines.push(...live.innerText.split("\\n"));
+          });
+        }
 
-        // 2. Scan all polite live regions (fallback)
-        const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
-        lives.forEach(live => {
-          if (live.innerText) lines.push(...live.innerText.split("\n"));
-        });
-
-        lines.map(l => l.trim()).filter(Boolean).forEach(l => emit(l));
+        // Final filter just in case
+        lines
+          .map(l => l.trim())
+          .filter(l => l.length > 0 && !exactIgnore.has(l.toLowerCase()) && !partialIgnore.some(p => l.toLowerCase().includes(p)))
+          .forEach(l => emit(l));
       };
 
       scan();
