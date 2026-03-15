@@ -219,6 +219,32 @@ async function enableCaptions(page) {
   await clickByText(page, ["Turn on captions", "Captions", "Увімкнути субтитри", "Субтитри", "Включить субтитры"], { timeoutMs: 6_000 });
 }
 
+async function setCaptionLanguageUkrainian(page) {
+  try {
+    const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 3000 });
+    if (!openedMenu) return;
+    await wait(500);
+    const settings = await clickByText(page, ["Settings", "Налаштування", "Настройки"], { timeoutMs: 3000 });
+    if (!settings) return;
+    await wait(1000);
+    await clickByText(page, ["Captions", "Субтитри", "Субтитры"], { timeoutMs: 3000 });
+    await wait(1000);
+    
+    // Try to click current language dropdown (usually English by default)
+    const clickedLang = await clickByText(page, ["English", "Англійська", "Английский"], { timeoutMs: 2000 });
+    if (clickedLang) {
+      await wait(1000);
+      await clickByText(page, ["Ukrainian", "Українська", "Украинский"], { timeoutMs: 2000 });
+      await wait(1000);
+    }
+    
+    // Close settings (usually a button with 'Close' label)
+    await clickByAriaContains(page, ["Close", "Закрити", "Закрыть"], { timeoutMs: 2000 });
+  } catch (e) {
+    console.error("Could not set caption language:", e.message);
+  }
+}
+
 async function dumpDebug(page, outDir, tag) {
   try {
     const safe = tag.replaceAll(/[^a-zA-Z0-9_-]+/g, "_");
@@ -283,11 +309,11 @@ async function main() {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--lang=en-US",
+      "--lang=uk-UA,uk,en-US",
       "--use-fake-ui-for-media-stream",
       "--start-fullscreen",
       "--window-size=1280,720",
-      "--disable-features=Translate",
+      "--disable-features=Translate,TranslateUI",
       "--disable-infobars"
     ]
   });
@@ -295,6 +321,16 @@ async function main() {
   let ffmpegProc = null;
   try {
     const page = await browser.newPage();
+
+    await page.evaluateOnNewDocument(() => {
+      const style = document.createElement("style");
+      style.textContent = `
+        .skiptranslate, #google_translate_element { display: none !important; }
+        body { top: 0 !important; }
+        [data-is-toast="true"], [role="alert"] { display: none !important; }
+      `;
+      document.documentElement.appendChild(style);
+    });
 
     const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
     if (cookiesEnv) {
@@ -394,6 +430,7 @@ async function main() {
     }
 
     await enableCaptions(page);
+    await setCaptionLanguageUkrainian(page);
 
     await page.exposeFunction("__onCaptionLine", (payload) => {
       const ts = typeof payload?.ts === "number" ? payload.ts : Date.now();
@@ -403,13 +440,8 @@ async function main() {
     });
 
     await page.evaluate(() => {
-      const live =
-        document.querySelector('[aria-live="polite"]') ??
-        document.querySelector('[aria-live="assertive"]') ??
-        document.body;
-
       const recent = [];
-      const maxRecent = 200;
+      const maxRecent = 500;
 
       const emit = (text) => {
         const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
@@ -419,31 +451,41 @@ async function main() {
         const ignoreList = [
           "залишилося", "повернення", "вилучили", "додано на головний", 
           "оцініть якість", "has left", "has joined", "presentation", "is presenting",
-          "долучився", "залишив", "приєднався"
+          "долучився", "залишив", "приєднався", "секунд"
         ];
         if (ignoreList.some(w => t.toLowerCase().includes(w))) return;
 
         const key = t;
+        // Basic deduplication to avoid emitting same exact line immediately
         if (recent.includes(key)) return;
         recent.push(key);
         if (recent.length > maxRecent) recent.shift();
+        
         // @ts-ignore
         window.__onCaptionLine({ ts: Date.now(), text: t });
       };
 
       const scan = () => {
-        const txt = live.textContent ?? "";
-        const lines = txt
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .slice(-6);
-        for (const l of lines) emit(l);
+        const lines = [];
+        
+        // 1. Find explicit caption containers used by Meet
+        const captionNodes = document.querySelectorAll('.iTTPOb, [jsname="t8xIwc"], .a4cQT');
+        captionNodes.forEach(n => {
+          if (n.innerText) lines.push(n.innerText);
+        });
+
+        // 2. Scan all polite live regions (fallback)
+        const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+        lives.forEach(live => {
+          if (live.innerText) lines.push(...live.innerText.split("\n"));
+        });
+
+        lines.map(l => l.trim()).filter(Boolean).forEach(l => emit(l));
       };
 
       scan();
       const obs = new MutationObserver(() => scan());
-      obs.observe(live, { childList: true, subtree: true, characterData: true });
+      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
 
     if (!skipRecording) {
