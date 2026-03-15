@@ -287,6 +287,18 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 720 });
+
+    const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
+    if (cookiesEnv) {
+      try {
+        const cookies = JSON.parse(cookiesEnv);
+        await page.setCookie(...cookies);
+        console.log("Injected Google account cookies.");
+      } catch (err) {
+        console.error("Failed to parse or set MEET_ACCOUNT_COOKIES:", err.message);
+      }
+    }
+
     await page.goto(session.meetUrl, { waitUntil: "networkidle2" });
 
     await wait(1000);
