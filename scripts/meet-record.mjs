@@ -221,14 +221,25 @@ async function clickCloseButtons(page) {
     await page.evaluate(() => {
       const closeButtons = Array.from(document.querySelectorAll('button'));
       for (const btn of closeButtons) {
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+          const label = (btn.getAttribute('aria-label') || '').toLowerCase();
         // Look for close buttons on toasts and translate UI
         if (label.includes('close') || label.includes('закрити') || label.includes('закрыть') || label.includes('dismiss')) {
           // Check if it's inside a toast or dialog or the top bar
-          const isToast = btn.closest('[role="alert"], [data-is-toast="true"], .geSSfc, .jRlwIf, #google_translate_element');
+          const isToast = btn.closest('[role="alert"], [data-is-toast="true"], .geSSfc, .jRlwIf, #google_translate_element, [role="dialog"]');
           if (isToast) {
             btn.click();
           }
+        }
+      }
+
+      // Explicitly find and dismiss specifically "Мікрофон не знайдено" and similar alerts by clicking their X button
+      const allBtns = Array.from(document.querySelectorAll('button'));
+      for (const btn of allBtns) {
+        if (btn.querySelector('svg')) { // Often close buttons are just SVGs inside a button
+           const alertParent = btn.closest('[role="alert"], [role="dialog"], .geSSfc');
+           if (alertParent && alertParent.textContent.includes('Мікрофон')) {
+             btn.click();
+           }
         }
       }
       
@@ -259,8 +270,8 @@ async function setCaptionLanguageUkrainian(page) {
     const quickLangDropdown = await clickByText(page, ["Англійська", "English", "Английский"], { timeoutMs: 2000 });
     if (quickLangDropdown) {
       await wait(1000);
-      await clickByText(page, ["Українська", "Ukrainian", "Украинский"], { timeoutMs: 2000 });
-      return;
+      const ukrOption = await clickByText(page, ["Українська", "Ukrainian", "Украинский"], { timeoutMs: 2000 });
+      if (ukrOption) return;
     }
 
     // Fallback to settings menu
@@ -286,6 +297,26 @@ async function setCaptionLanguageUkrainian(page) {
   } catch (e) {
     console.error("Could not set caption language:", e.message);
   }
+}
+
+async function setLayoutSpotlight(page) {
+  try {
+    await page.mouse.move(500, 500);
+    await wait(500);
+    
+    const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 3000 });
+    if (!openedMenu) return;
+    await wait(500);
+    
+    const layout = await clickByText(page, ["Change layout", "Змінити макет", "Изменить макет"], { timeoutMs: 3000 });
+    if (!layout) return;
+    await wait(1000);
+    
+    await clickByText(page, ["Spotlight", "У центрі уваги", "В центре внимания"], { timeoutMs: 3000 });
+    await wait(1000);
+    
+    await clickByAriaContains(page, ["Close", "Закрити", "Закрыть"], { timeoutMs: 2000 });
+  } catch (e) {}
 }
 
 async function pinPresentation(page) {
@@ -556,40 +587,20 @@ async function main() {
       const scan = () => {
         const lines = [];
         
-        // Try specific caption classes first
         let foundSpecific = false;
-        const captionNodes = document.querySelectorAll('.TBMuR, .a4cQT, .CNusmb, .iTTPOb');
-        if (captionNodes.length > 0) {
-          captionNodes.forEach(node => {
-            // Find text nodes that look like captions
-            const textContent = node.innerText || "";
-            if (textContent && !exactIgnore.has(textContent.toLowerCase().trim())) {
-               foundSpecific = true;
-            }
+        // Search all possible subtitle elements
+        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb, .TBMuR, .a4cQT');
+        
+        if (textNodes.length > 0) {
+          textNodes.forEach(node => {
+            const rawText = node.textContent || node.innerText || "";
+            const validParts = rawText.split('\n')
+              .map(s => s.trim())
+              .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
             
-            const speakerNode = node.querySelector('.zs7s8d, .jO7h3c');
-            const speaker = speakerNode ? speakerNode.innerText.trim() : "";
-            
-            const textNodes = node.querySelectorAll('.iTTPOb');
-            if (textNodes.length > 0) {
-              textNodes.forEach(textNode => {
-                const rawText = textNode.innerText || "";
-                const validParts = rawText.split('\n')
-                  .map(s => s.trim())
-                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-                
-                if (validParts.length > 0) {
-                  lines.push(speaker ? `${speaker}: ${validParts.join(' ')}` : validParts.join(' '));
-                }
-              });
-            } else {
-               // If no specific text node inside, just use the parent's text
-               const validParts = textContent.split('\n')
-                  .map(s => s.trim())
-                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-               if (validParts.length > 0 && !textContent.includes(speaker)) {
-                  lines.push(speaker ? `${speaker}: ${validParts.join(' ')}` : validParts.join(' '));
-               }
+            if (validParts.length > 0) {
+              foundSpecific = true;
+              lines.push(validParts.join(' '));
             }
           });
         }
@@ -598,7 +609,7 @@ async function main() {
         if (!foundSpecific) {
           const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
           lives.forEach(live => {
-             const rawText = live.textContent || "";
+             const rawText = live.textContent || live.innerText || "";
              const validParts = rawText.split('\n')
                 .map(s => s.trim())
                 .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
@@ -609,7 +620,7 @@ async function main() {
         // Final filter just in case
         lines
           .map(l => l.trim())
-          .filter(l => l.length > 0 && !exactIgnore.has(l.toLowerCase()) && !partialIgnore.some(p => l.toLowerCase().includes(p)))
+          .filter(l => l.length > 0)
           .forEach(l => emit(l));
       };
 
@@ -623,10 +634,17 @@ async function main() {
     }
 
     const stopAt = Math.min(endMs, Date.now() + 6 * 60 * 60_000);
+    let layoutChanged = false;
     let consecutiveMisses = 0;
+    
     while (Date.now() < stopAt) {
       await clickCloseButtons(page);
-      await pinPresentation(page);
+      
+      // Try to change layout to spotlight once per call, doing it during the loop ensures we're fully in
+      if (!layoutChanged) {
+        await setLayoutSpotlight(page);
+        layoutChanged = true;
+      }
       
       await wait(2000);
       const stillInCall = await page.evaluate(() => {
