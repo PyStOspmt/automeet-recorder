@@ -7,14 +7,38 @@ function requireEnv(name) {
   return v;
 }
 
+function optionalEnv(name) {
+  const v = process.env[name];
+  if (!v) return null;
+  return v;
+}
+
+function getRedirectUri() {
+  const explicit = optionalEnv("GOOGLE_OAUTH_REDIRECT_URI");
+  if (explicit) return explicit;
+
+  const portRaw = optionalEnv("GOOGLE_OAUTH_REDIRECT_PORT") ?? "53682";
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`Invalid GOOGLE_OAUTH_REDIRECT_PORT: ${portRaw}`);
+  }
+  return `http://127.0.0.1:${port}/oauth2callback`;
+}
+
 async function main() {
   const clientId = requireEnv("GOOGLE_OAUTH_CLIENT_ID");
   const clientSecret = requireEnv("GOOGLE_OAUTH_CLIENT_SECRET");
 
+  const redirectUri = getRedirectUri();
+  const redirectUrl = new URL(redirectUri);
+  if (redirectUrl.protocol !== "http:") throw new Error("Redirect URI must be http:// for loopback");
+  if (redirectUrl.hostname !== "127.0.0.1") throw new Error("Redirect URI host must be 127.0.0.1");
+
   const server = http.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
-  const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(Number(redirectUrl.port), "127.0.0.1", resolve);
+  });
 
   const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
   const scopes = ["https://www.googleapis.com/auth/drive.file"];
@@ -61,4 +85,3 @@ main().catch((err) => {
   console.error(err?.stack ?? String(err));
   process.exitCode = 1;
 });
-
