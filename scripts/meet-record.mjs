@@ -170,6 +170,10 @@ function startFfmpeg({ display, videoSize, outFile }) {
     "-loglevel",
     "warning",
     "-f",
+    "pulse",
+    "-i",
+    "default",
+    "-f",
     "x11grab",
     "-video_size",
     videoSize,
@@ -185,6 +189,8 @@ function startFfmpeg({ display, videoSize, outFile }) {
     "28",
     "-pix_fmt",
     "yuv420p",
+    "-c:a",
+    "aac",
     outFile
   ];
   const proc = spawn("ffmpeg", args, { stdio: ["ignore", "inherit", "inherit"] });
@@ -205,12 +211,12 @@ async function stopFfmpeg(proc) {
 }
 
 async function enableCaptions(page) {
-  const ok = await clickByAriaContains(page, ["captions", "caption"], { timeoutMs: 8_000 });
+  const ok = await clickByAriaContains(page, ["captions", "caption", "субтитр"], { timeoutMs: 8_000 });
   if (ok) return;
 
-  const openedMenu = await clickByAriaContains(page, ["More options"], { timeoutMs: 6_000 });
+  const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 6_000 });
   if (!openedMenu) return;
-  await clickByText(page, ["Turn on captions", "Captions"], { timeoutMs: 6_000 });
+  await clickByText(page, ["Turn on captions", "Captions", "Увімкнути субтитри", "Субтитри", "Включить субтитры"], { timeoutMs: 6_000 });
 }
 
 async function dumpDebug(page, outDir, tag) {
@@ -272,21 +278,23 @@ async function main() {
 
   const browser = await puppeteer.launch({
     headless: false,
+    defaultViewport: null,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--lang=en-US",
       "--use-fake-ui-for-media-stream",
-      "--mute-audio",
-      "--window-size=1280,720"
+      "--start-fullscreen",
+      "--window-size=1280,720",
+      "--disable-features=Translate",
+      "--disable-infobars"
     ]
   });
 
   let ffmpegProc = null;
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 720 });
 
     const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
     if (cookiesEnv) {
@@ -406,6 +414,15 @@ async function main() {
       const emit = (text) => {
         const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
         if (!t) return;
+        
+        // Filter out common system notifications
+        const ignoreList = [
+          "залишилося", "повернення", "вилучили", "додано на головний", 
+          "оцініть якість", "has left", "has joined", "presentation", "is presenting",
+          "долучився", "залишив", "приєднався"
+        ];
+        if (ignoreList.some(w => t.toLowerCase().includes(w))) return;
+
         const key = t;
         if (recent.includes(key)) return;
         recent.push(key);
