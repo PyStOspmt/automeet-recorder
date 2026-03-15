@@ -44,10 +44,12 @@ jobs:
         run: npm ci
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y xvfb ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y xvfb ffmpeg pulseaudio
 
-      - name: Start Xvfb
-        run: Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
+      - name: Start Xvfb & PulseAudio
+        run: |
+          pulseaudio -D --exit-idle-time=-1
+          Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
 
       - name: Run scheduled session
         if: github.event_name == 'schedule'
