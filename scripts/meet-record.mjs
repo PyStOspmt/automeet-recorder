@@ -238,6 +238,7 @@ async function clickCloseButtons(page) {
     });
   } catch (e) {}
 }
+async function enableCaptions(page) {
   await page.mouse.move(500, 500); // reveal control bar
   await wait(500);
   
@@ -597,7 +598,7 @@ async function main() {
         if (!foundSpecific) {
           const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
           lives.forEach(live => {
-             const rawText = live.innerText || "";
+             const rawText = live.textContent || "";
              const validParts = rawText.split('\n')
                 .map(s => s.trim())
                 .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
