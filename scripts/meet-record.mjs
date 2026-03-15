@@ -26,16 +26,32 @@ function sanitizeForPath(name) {
 
 function readSession() {
   const file = optionalEnv("SESSION_FILE");
-  if (file) return JSON.parse(fs.readFileSync(file, "utf8"));
+  if (file) {
+    const s = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (s?.meetUrl) {
+      try {
+        const u = new URL(String(s.meetUrl));
+        u.search = "";
+        s.meetUrl = u.toString();
+      } catch {}
+    }
+    return s;
+  }
 
   const meetUrl = requireEnv("MEET_URL");
   const title = optionalEnv("SESSION_TITLE") ?? "Session";
   const durationMin = Number(optionalEnv("RECORD_MIN") ?? "10");
   const now = Date.now();
+  let cleanMeetUrl = meetUrl;
+  try {
+    const u = new URL(meetUrl);
+    u.search = "";
+    cleanMeetUrl = u.toString();
+  } catch {}
   return {
     id: optionalEnv("SESSION_ID") ?? `manual-${now}`,
     title,
-    meetUrl,
+    meetUrl: cleanMeetUrl,
     start: new Date(now).toISOString(),
     end: new Date(now + durationMin * 60_000).toISOString()
   };
@@ -48,20 +64,36 @@ function wait(ms) {
 async function clickByText(page, texts, { timeoutMs = 15_000 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const clicked = await page.evaluate((texts) => {
-      const targets = texts.map((t) => String(t).toLowerCase().trim()).filter(Boolean);
-      const buttons = Array.from(document.querySelectorAll("button"));
-      for (const b of buttons) {
-        const txt = String(b.innerText ?? "").toLowerCase();
-        for (const t of targets) {
-          if (txt.includes(t)) {
-            b.click();
-            return true;
+    let clicked = false;
+    try {
+      clicked = await page.evaluate((texts) => {
+        const targets = texts.map((t) => String(t).toLowerCase().trim()).filter(Boolean);
+        const nodes = Array.from(document.querySelectorAll("button, a, [role='button']"));
+        for (const n of nodes) {
+          const parts = [
+            String(n.innerText ?? ""),
+            String(n.textContent ?? ""),
+            String(n.getAttribute?.("aria-label") ?? "")
+          ];
+          const txt = parts.join(" ").toLowerCase();
+          for (const t of targets) {
+            if (t && txt.includes(t)) {
+              // @ts-ignore
+              n.click();
+              return true;
+            }
           }
         }
+        return false;
+      }, texts);
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      if (msg.includes("Execution context was destroyed") || msg.includes("Cannot find context with specified id")) {
+        await wait(250);
+        continue;
       }
-      return false;
-    }, texts);
+      throw e;
+    }
     if (clicked) return true;
     await wait(250);
   }
@@ -276,7 +308,22 @@ async function main() {
 
     await ensureMicCamOff(page);
 
-    await clickByText(page, ["Continue without microphone and camera", "Continue"], { timeoutMs: 3_000 });
+    await clickByText(
+      page,
+      [
+        "Continue without microphone and camera",
+        "Continue without microphone & camera",
+        "Continue without microphone",
+        "Continue",
+        "Продовжити без мікрофона й камери",
+        "Продовжити без мікрофона та камери",
+        "Продовжити",
+        "Продолжить без микрофона и камеры",
+        "Продолжить"
+      ],
+      { timeoutMs: 6_000 }
+    );
+    await wait(500);
 
     await clickByText(
       page,
@@ -297,9 +344,11 @@ async function main() {
       await page.waitForNavigation({ timeout: 10_000, waitUntil: "domcontentloaded" });
     } catch {}
 
+    await clickByText(page, ["Got it", "OK", "Okay", "Зрозуміло", "Гаразд", "Добре", "Понятно"], { timeoutMs: 3_000 });
+
     const inCall = await waitForAriaButtonContains(
       page,
-      ["leave call", "leave meeting", "hang up", "покин", "вийти", "заверш", "покинуть", "выйти", "завершить"],
+      ["leave call", "leave meeting", "hang up", "покин", "покинути", "вийти", "заверш", "покинуть", "выйти", "завершить"],
       { timeoutMs: 90_000 }
     );
 
