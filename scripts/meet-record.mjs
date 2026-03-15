@@ -83,6 +83,27 @@ async function clickByAriaContains(page, fragments, { timeoutMs = 15_000 } = {})
   return false;
 }
 
+async function waitForAriaButtonContains(page, fragments, { timeoutMs = 60_000 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const found = await page.evaluate((fragments) => {
+      const frags = fragments.map((f) => String(f).toLowerCase());
+      const btns = Array.from(document.querySelectorAll("button"));
+      for (const b of btns) {
+        const label = String(b.getAttribute("aria-label") ?? "").toLowerCase();
+        if (!label) continue;
+        for (const f of frags) {
+          if (label.includes(f)) return true;
+        }
+      }
+      return false;
+    }, fragments);
+    if (found) return true;
+    await wait(250);
+  }
+  return false;
+}
+
 async function ensureMicCamOff(page) {
   const micBtn = await page.$('button[aria-label*="microphone" i]');
   if (micBtn) {
@@ -146,6 +167,34 @@ async function enableCaptions(page) {
   await clickByText(page, ["Turn on captions", "Captions"], { timeoutMs: 6_000 });
 }
 
+async function dumpDebug(page, outDir, tag) {
+  try {
+    const safe = tag.replaceAll(/[^a-zA-Z0-9_-]+/g, "_");
+    await page.screenshot({ path: path.join(outDir, `debug-${safe}.png`), fullPage: true });
+    const html = await page.content();
+    fs.writeFileSync(path.join(outDir, `debug-${safe}.html`), html, "utf8");
+  } catch {}
+}
+
+async function detectAccessBlock(page) {
+  return page.evaluate(() => {
+    const t = (document.body?.innerText ?? "").toLowerCase();
+    const markers = [
+      "you can't join this meeting",
+      "can’t join this meeting",
+      "ask your host",
+      "sign in with the google account your host invited",
+      "must be signed in",
+      "not allowed to join",
+      "ви не можете приєднатися",
+      "увійдіть в обліковий запис google",
+      "потрібно ввійти",
+      "доступ заборонено"
+    ];
+    return markers.some((m) => t.includes(m));
+  });
+}
+
 async function main() {
   const session = readSession();
   const titleSafe = sanitizeForPath(optionalEnv("SESSION_TITLE_SAFE") ?? session.title);
@@ -190,6 +239,13 @@ async function main() {
 
     await wait(1000);
 
+    if (await detectAccessBlock(page)) {
+      await dumpDebug(page, outDir, "access-block");
+      throw new Error(
+        "Meet denies guest access (requires invited signed-in account or host settings). Allow guests or invite the guest name, then retry."
+      );
+    }
+
     const nameInput =
       (await page.$('input[aria-label*="name" i]')) ??
       (await page.$('input[type="text"]'));
@@ -201,9 +257,38 @@ async function main() {
 
     await ensureMicCamOff(page);
 
-    await clickByText(page, ["Ask to join", "Join now"], { timeoutMs: 15_000 });
+    await clickByText(page, ["Continue without microphone and camera", "Continue"], { timeoutMs: 3_000 });
 
-    await page.waitForSelector('button[aria-label*="leave call" i]', { timeout: 60_000 });
+    await clickByText(
+      page,
+      [
+        "Ask to join",
+        "Join now",
+        "Попросити приєднатися",
+        "Приєднатися",
+        "Приєднатися зараз",
+        "Попросить присоединиться",
+        "Присоединиться",
+        "Присоединиться сейчас"
+      ],
+      { timeoutMs: 20_000 }
+    );
+
+    const inCall = await waitForAriaButtonContains(
+      page,
+      ["leave call", "leave meeting", "hang up", "покин", "вийти", "заверш", "покинуть", "выйти", "завершить"],
+      { timeoutMs: 90_000 }
+    );
+
+    if (!inCall) {
+      await dumpDebug(page, outDir, "join-timeout");
+      if (await detectAccessBlock(page)) {
+        throw new Error(
+          "Meet denies guest access (requires invited signed-in account or host settings). Allow guests or invite the guest name, then retry."
+        );
+      }
+      throw new Error("Timeout waiting to enter the call (not admitted or UI changed).");
+    }
 
     await enableCaptions(page);
 

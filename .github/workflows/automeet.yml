@@ -70,3 +70,9 @@ jobs:
           RECORD_MIN: ${{ inputs.record_min }}
         run: npm run record:once
 
+      - name: Upload debug artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-out
+          path: out/**/debug-*.{png,html}
