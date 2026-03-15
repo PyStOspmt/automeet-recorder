@@ -7,7 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "drive:smoke": "node ./scripts/drive-smoke-upload.mjs"
+    "drive:smoke": "node ./scripts/drive-smoke-upload.mjs",
+    "drive:oauth:token": "node ./scripts/oauth-generate-refresh-token.mjs"
   },
   "dependencies": {
     "googleapis": "^150.0.0"
