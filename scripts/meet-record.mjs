@@ -499,14 +499,18 @@ async function main() {
     });
     await page.evaluate(() => document.documentElement.setAttribute("translate", "no"));
 
-    await wait(1000);
+    await wait(3000); // Give it a bit more time to process redirects / auth
     if (debugSteps) await dumpDebug(page, outDir, "01-loaded");
 
     if (await detectAccessBlock(page)) {
-      await dumpDebug(page, outDir, "access-block");
-      throw new Error(
-        "Meet denies guest access (requires invited signed-in account or host settings). Allow guests or invite the guest name, then retry."
-      );
+      // Sometimes page says "please wait" before admitting, or auth is slow
+      await wait(3000);
+      if (await detectAccessBlock(page)) {
+        await dumpDebug(page, outDir, "access-block");
+        throw new Error(
+          "Meet denies guest access (requires invited signed-in account or host settings). Allow guests or invite the guest name, then retry."
+        );
+      }
     }
 
     const nameInput =
