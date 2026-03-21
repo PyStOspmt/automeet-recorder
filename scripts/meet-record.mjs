@@ -267,12 +267,24 @@ async function setCaptionLanguageUkrainian(page) {
     await wait(500);
     
     // First try the quick on-screen dropdown if available
-    const quickLangDropdown = await clickByText(page, ["Англійська", "English", "Английский"], { timeoutMs: 2000 });
-    if (quickLangDropdown) {
-      await wait(1000);
-      const ukrOption = await clickByText(page, ["Українська", "Ukrainian", "Украинский"], { timeoutMs: 2000 });
-      if (ukrOption) return;
-    }
+    const changedQuick = await page.evaluate(async () => {
+      const getBtn = (text) => Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div'))
+        .find(b => b.innerText && b.innerText.toLowerCase().includes(text.toLowerCase()) && b.innerText.length < 30);
+      
+      const enBtn = getBtn("Англійська") || getBtn("English") || getBtn("Английский");
+      if (enBtn) {
+        enBtn.click();
+        await new Promise(r => setTimeout(r, 1000));
+        const ukBtn = getBtn("Українська") || getBtn("Ukrainian") || getBtn("Украинский");
+        if (ukBtn) {
+          ukBtn.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    
+    if (changedQuick) return;
 
     // Fallback to settings menu
     const openedMenu = await clickByAriaContains(page, ["More options", "Інші параметри", "Другие параметры"], { timeoutMs: 3000 });
@@ -284,15 +296,32 @@ async function setCaptionLanguageUkrainian(page) {
     await clickByText(page, ["Captions", "Субтитри", "Субтитры"], { timeoutMs: 3000 });
     await wait(1000);
     
-    // Try to click current language dropdown (usually English by default)
-    const clickedLang = await clickByText(page, ["English", "Англійська", "Английский"], { timeoutMs: 2000 });
-    if (clickedLang) {
-      await wait(1000);
-      await clickByText(page, ["Ukrainian", "Українська", "Украинский"], { timeoutMs: 2000 });
-      await wait(1000);
-    }
+    // Click the language dropdown
+    await page.evaluate(() => {
+      const labels = ["Англійська", "English", "Английский"];
+      const nodes = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
+      for (const n of nodes) {
+        if (labels.some(l => n.innerText === l)) {
+          n.click();
+          break;
+        }
+      }
+    });
+    await wait(1000);
     
-    // Close settings (usually a button with 'Close' label)
+    await page.evaluate(() => {
+      const labels = ["Українська", "Ukrainian", "Украинский"];
+      const nodes = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
+      for (const n of nodes) {
+        if (labels.some(l => n.innerText === l)) {
+          n.click();
+          break;
+        }
+      }
+    });
+    await wait(1000);
+    
+    // Close settings
     await clickByAriaContains(page, ["Close", "Закрити", "Закрыть"], { timeoutMs: 2000 });
   } catch (e) {
     console.error("Could not set caption language:", e.message);
@@ -323,12 +352,22 @@ async function pinPresentation(page) {
   try {
     await page.evaluate(() => {
       // Look for buttons that say "Pin" or "Закріпити" and are related to presentations
-      const btns = Array.from(document.querySelectorAll('button'));
-      for (const btn of btns) {
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        if ((label.includes('pin') || label.includes('закріпит')) && 
-            (label.includes('presentation') || label.includes('презентац'))) {
-          btn.click();
+      // Or just find the presentation tile and click its pin button
+      const allTiles = Array.from(document.querySelectorAll('[data-requested-participant-id]'));
+      for (const tile of allTiles) {
+        if (tile.innerText.toLowerCase().includes('презентація') || tile.innerText.toLowerCase().includes('presentation')) {
+          const pinBtn = tile.querySelector('button[aria-label*="Закріпит"], button[aria-label*="Pin"], button[aria-label*="закріпит"], button[aria-label*="pin"]');
+          if (pinBtn) {
+            pinBtn.click();
+            break;
+          }
+          // fallback: double click the tile to pin it
+          const dblClickEvent = new MouseEvent('dblclick', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+          });
+          tile.dispatchEvent(dblClickEvent);
           break;
         }
       }
@@ -402,9 +441,10 @@ async function main() {
       "--disable-dev-shm-usage",
       "--lang=uk-UA,uk,en-US",
       "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
       "--start-fullscreen",
       "--window-size=1280,720",
-      "--disable-features=Translate",
+      "--disable-features=Translate,TranslateUI",
       "--disable-translate",
       "--disable-infobars",
       "--disable-notifications"
@@ -589,7 +629,7 @@ async function main() {
         
         let foundSpecific = false;
         // Search all possible subtitle elements
-        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb, .TBMuR, .a4cQT');
+        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb, .TBMuR, .a4cQT, [jsname="t8xIwc"], .V8tvCb, .K6qwBf');
         
         if (textNodes.length > 0) {
           textNodes.forEach(node => {
@@ -617,10 +657,27 @@ async function main() {
           });
         }
 
+        // Extremely basic fallback if everything else fails: just look for blocks with text at the bottom of the screen
+        if (lines.length === 0) {
+           const bottomTextContainers = Array.from(document.querySelectorAll('div')).filter(d => {
+              const rect = d.getBoundingClientRect();
+              // Check if it's in the bottom half of the screen and has some text
+              return rect.bottom > window.innerHeight * 0.6 && d.innerText && d.innerText.length > 10 && d.childElementCount === 0;
+           });
+           
+           for (const container of bottomTextContainers) {
+             const rawText = container.textContent || "";
+             const validParts = rawText.split('\n')
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+             lines.push(...validParts);
+           }
+        }
+
         // Final filter just in case
         lines
           .map(l => l.trim())
-          .filter(l => l.length > 0)
+          .filter(l => l.length > 0 && !exactIgnore.has(l.toLowerCase()) && !partialIgnore.some(p => l.toLowerCase().includes(p)))
           .forEach(l => emit(l));
       };
 
