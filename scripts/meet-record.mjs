@@ -287,21 +287,27 @@ async function setCaptionLanguageUkrainian(page) {
     
     // First try the quick on-screen dropdown if available
     const changedQuick = await page.evaluate(async () => {
-      const getBtn = (text) => Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div'))
-        .find(b => b.innerText && b.innerText.toLowerCase().trim() === text.toLowerCase());
-      
-      const enBtn = getBtn("Англійська") || getBtn("English") || getBtn("Английский");
-      if (enBtn) {
-        enBtn.click();
-        await new Promise(r => setTimeout(r, 1000));
-        const ukBtn = Array.from(document.querySelectorAll('li, [role="option"], div, span'))
-          .find(b => b.innerText && b.innerText.toLowerCase().includes("українська"));
-        if (ukBtn) {
-          ukBtn.click();
-          return true;
-        }
-      }
-      return false;
+      const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
+      const clickableNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      const dropdown = clickableNodes.find(node => {
+        const text = getText(node);
+        return text === "англійська" || text === "english" || text === "английский";
+      });
+
+      if (!dropdown) return false;
+
+      dropdown.click();
+      await new Promise(r => setTimeout(r, 1200));
+
+      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], div, span'));
+      const ukOption = optionNodes.find(node => getText(node).includes("українська"));
+      if (!ukOption) return false;
+
+      ukOption.click();
+      await new Promise(r => setTimeout(r, 1200));
+
+      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      return afterNodes.some(node => getText(node).includes("українська"));
     });
     
     if (changedQuick) return;
@@ -316,35 +322,51 @@ async function setCaptionLanguageUkrainian(page) {
     await clickByText(page, ["Captions", "Субтитри", "Субтитры"], { timeoutMs: 3000 });
     await wait(1000);
     
-    // Click the language dropdown
-    await page.evaluate(() => {
-      const labels = ["Англійська", "English", "Английский"];
-      const nodes = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
-      for (const n of nodes) {
-        if (labels.some(l => n.innerText === l)) {
-          n.click();
-          break;
-        }
-      }
-    });
-    await wait(1000);
-    
-    await page.evaluate(() => {
-      const labels = ["Українська", "Ukrainian", "Украинский"];
-      const nodes = Array.from(document.querySelectorAll('div, span, li, [role="option"]'));
-      for (const n of nodes) {
-        if (labels.some(l => n.innerText === l)) {
-          n.click();
-          break;
-        }
-      }
+    const changedInSettings = await page.evaluate(async () => {
+      const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
+      const dropdownNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      const currentLang = dropdownNodes.find(node => {
+        const text = getText(node);
+        return text === "англійська" || text === "english" || text === "английский";
+      });
+
+      if (!currentLang) return false;
+
+      currentLang.click();
+      await new Promise(r => setTimeout(r, 1200));
+
+      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], div, span'));
+      const ukOption = optionNodes.find(node => getText(node).includes("українська"));
+      if (!ukOption) return false;
+
+      ukOption.click();
+      await new Promise(r => setTimeout(r, 1200));
+
+      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      return afterNodes.some(node => getText(node).includes("українська"));
     });
     await wait(1000);
     
     // Close settings
     await clickByAriaContains(page, ["Close", "Закрити", "Закрыть"], { timeoutMs: 2000 });
+
+    if (!changedInSettings) {
+      console.error("Could not confirm Ukrainian captions after settings change.");
+    }
   } catch (e) {
     console.error("Could not set caption language:", e.message);
+  }
+}
+
+async function isCaptionLanguageUkrainian(page) {
+  try {
+    return await page.evaluate(() => {
+      const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
+      const nodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      return nodes.some(node => getText(node).includes("українська"));
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -442,6 +464,19 @@ async function main() {
   const videoPath = path.join(outDir, "recording.mp4");
   const captionsPath = path.join(outDir, "captions.txt");
   const metaPath = path.join(outDir, "meta.json");
+  const chromeProfileDir = path.join(outDir, "chrome-profile");
+  const chromeDefaultDir = path.join(chromeProfileDir, "Default");
+
+  fs.mkdirSync(chromeDefaultDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(chromeDefaultDir, "Preferences"),
+    JSON.stringify({
+      translate: { enabled: false },
+      intl: { accept_languages: "uk-UA,uk,en-US,en" },
+      profile: { default_content_setting_values: { notifications: 2 } }
+    }),
+    "utf8"
+  );
 
   fs.writeFileSync(metaPath, JSON.stringify({ id: session.id, title: session.title, start: session.start, end: session.end }), "utf8");
 
@@ -455,16 +490,17 @@ async function main() {
   const browser = await puppeteer.launch({
     headless: false,
     defaultViewport: null,
+    userDataDir: chromeProfileDir,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--lang=uk-UA,uk,en-US",
       "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
       "--start-fullscreen",
       "--window-size=1280,720",
-      "--disable-features=Translate,TranslateUI",
+      "--disable-features=Translate,TranslateUI,TranslateSubFrames,OptimizationGuideModelDownloading",
+      "--blink-settings=translateEnabled=false",
       "--disable-translate",
       "--disable-infobars",
       "--disable-notifications"
@@ -474,6 +510,9 @@ async function main() {
   let ffmpegProc = null;
   try {
     const page = await browser.newPage();
+    const context = browser.defaultBrowserContext();
+    await context.overridePermissions("https://meet.google.com", ["microphone", "camera", "notifications"]);
+    await page.setExtraHTTPHeaders({ "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7" });
     
     // Completely block native Chrome Translate popup by declaring the page as our native language immediately
     await page.evaluateOnNewDocument(() => {
@@ -484,12 +523,38 @@ async function main() {
       meta.name = 'google';
       meta.content = 'notranslate';
       document.head.appendChild(meta);
+      document.documentElement.setAttribute('translate', 'no');
+      document.body?.setAttribute?.('translate', 'no');
+
+      const cleanupTranslateUi = () => {
+        const selectors = [
+          '.skiptranslate',
+          '#google_translate_element',
+          '.goog-te-banner-frame',
+          '.goog-te-balloon-frame',
+          '.goog-te-menu-frame',
+          '[class*="goog-te"]',
+          '[id*="goog-gt"]',
+          'iframe[src*="translate"]',
+          'iframe[name*="translate"]'
+        ];
+
+        for (const selector of selectors) {
+          document.querySelectorAll(selector).forEach(node => node.remove());
+        }
+      };
       
       if (window.location.hostname.includes("meet.google.com")) {
         const style = document.createElement("style");
         style.textContent = `
           .skiptranslate, #google_translate_element { display: none !important; }
           body { top: 0 !important; }
+          .goog-te-banner-frame, .goog-te-balloon-frame, .goog-te-menu-frame, [class*="goog-te"], [id*="goog-gt"], iframe[src*="translate"], iframe[name*="translate"] {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+          }
           [data-is-toast="true"], [role="alert"], [role="alertdialog"], .geSSfc, .jRlwIf { 
             display: none !important; 
             opacity: 0 !important; 
@@ -498,6 +563,8 @@ async function main() {
           }
         `;
         document.documentElement.appendChild(style);
+        cleanupTranslateUi();
+        setInterval(cleanupTranslateUi, 500);
       }
     });
 
@@ -619,6 +686,10 @@ async function main() {
 
     await enableCaptions(page);
     await setCaptionLanguageUkrainian(page);
+    if (!(await isCaptionLanguageUkrainian(page))) {
+      await wait(1500);
+      await setCaptionLanguageUkrainian(page);
+    }
 
     await page.exposeFunction("__onCaptionLine", (payload) => {
       const ts = typeof payload?.ts === "number" ? payload.ts : Date.now();
@@ -718,6 +789,10 @@ async function main() {
 
     while (Date.now() < stopAt) {
       await clickCloseButtons(page);
+
+      if (!(await isCaptionLanguageUkrainian(page))) {
+        await setCaptionLanguageUkrainian(page);
+      }
       
       // Try to change layout to spotlight once per call, doing it during the loop ensures we're fully in
       if (!layoutChanged) {

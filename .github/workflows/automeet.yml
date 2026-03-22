@@ -50,12 +50,17 @@ jobs:
         run: |
           pulseaudio -D --exit-idle-time=-1
           Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
+          pactl load-module module-null-sink sink_name=auto_meet_sink sink_properties=device.description=AutoMeetSilentSink
+          pactl load-module module-null-source source_name=auto_meet_mic source_properties=device.description=AutoMeetSilentMic
+          pactl set-default-sink auto_meet_sink
+          pactl set-default-source auto_meet_mic
 
       - name: Run scheduled session
         if: github.event_name == 'schedule'
         env:
           DISPLAY: :99
           VIDEO_SIZE: 1280x720
+          PULSE_SOURCE: auto_meet_mic
           MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
           MEET_ACCOUNT_COOKIES: ${{ secrets.MEET_ACCOUNT_COOKIES }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
@@ -71,6 +76,7 @@ jobs:
         env:
           DISPLAY: :99
           VIDEO_SIZE: 1280x720
+          PULSE_SOURCE: auto_meet_mic
           MEET_GUEST_NAME: ${{ secrets.MEET_GUEST_NAME }}
           MEET_ACCOUNT_COOKIES: ${{ secrets.MEET_ACCOUNT_COOKIES }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
