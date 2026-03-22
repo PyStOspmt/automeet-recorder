@@ -501,7 +501,7 @@ async function main() {
       document.documentElement.appendChild(style);
       Object.defineProperty(navigator, 'language', { get: () => 'uk-UA' });
       Object.defineProperty(navigator, 'languages', { get: () => ['uk-UA', 'uk', 'en-US'] });
-    });
+    }
 
     const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
     if (cookiesEnv) {
