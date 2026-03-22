@@ -261,6 +261,25 @@ async function enableCaptions(page) {
   await clickByText(page, ["Turn on captions", "Captions", "Увімкнути субтитри", "Субтитри", "Включить субтитры"], { timeoutMs: 6_000 });
 }
 
+async function muteMicAndCamera(page) {
+  try {
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const micBtn = btns.find(b => {
+        const l = (b.getAttribute('aria-label') || '').toLowerCase();
+        return l.includes('вимкнути мікрофон') || l.includes('turn off microphone');
+      });
+      if (micBtn) micBtn.click();
+      
+      const camBtn = btns.find(b => {
+        const l = (b.getAttribute('aria-label') || '').toLowerCase();
+        return l.includes('вимкнути камеру') || l.includes('turn off camera');
+      });
+      if (camBtn) camBtn.click();
+    });
+  } catch (e) {}
+}
+
 async function setCaptionLanguageUkrainian(page) {
   try {
     await page.mouse.move(500, 500);
@@ -269,13 +288,14 @@ async function setCaptionLanguageUkrainian(page) {
     // First try the quick on-screen dropdown if available
     const changedQuick = await page.evaluate(async () => {
       const getBtn = (text) => Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div'))
-        .find(b => b.innerText && b.innerText.toLowerCase().includes(text.toLowerCase()) && b.innerText.length < 30);
+        .find(b => b.innerText && b.innerText.toLowerCase().trim() === text.toLowerCase());
       
       const enBtn = getBtn("Англійська") || getBtn("English") || getBtn("Английский");
       if (enBtn) {
         enBtn.click();
         await new Promise(r => setTimeout(r, 1000));
-        const ukBtn = getBtn("Українська") || getBtn("Ukrainian") || getBtn("Украинский");
+        const ukBtn = Array.from(document.querySelectorAll('li, [role="option"], div, span'))
+          .find(b => b.innerText && b.innerText.toLowerCase().includes("українська"));
         if (ukBtn) {
           ukBtn.click();
           return true;
@@ -454,8 +474,19 @@ async function main() {
   let ffmpegProc = null;
   try {
     const page = await browser.newPage();
-
+    
+    // Completely block native Chrome Translate popup by declaring the page as our native language immediately
     await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'language', {get: () => 'uk-UA'});
+      Object.defineProperty(navigator, 'languages', {get: () => ['uk-UA', 'uk', 'en']});
+      // Also inject the meta tag early
+      const meta = document.createElement('meta');
+      meta.name = 'google';
+      meta.content = 'notranslate';
+      document.head.appendChild(meta);
+    });
+
+    if (session.meetUrl.includes("meet.google.com")) {
       const style = document.createElement("style");
       style.textContent = `
         .skiptranslate, #google_translate_element { display: none !important; }
@@ -519,6 +550,7 @@ async function main() {
       (await page.$('input[type="text"]'));
 
     if (nameInput) {
+      await muteMicAndCamera(page); // Mute early in waiting room
       await nameInput.click({ clickCount: 3 });
       await nameInput.type(guestName, { delay: 15 });
       try {
@@ -632,8 +664,8 @@ async function main() {
         const lines = [];
         
         let foundSpecific = false;
-        // Search all possible subtitle elements
-        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb, .TBMuR, .a4cQT, [jsname="t8xIwc"], .V8tvCb, .K6qwBf');
+        // Search specific subtitle classes ONLY to avoid grabbing UI elements
+        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb .a4cQT');
         
         if (textNodes.length > 0) {
           textNodes.forEach(node => {
@@ -654,28 +686,14 @@ async function main() {
           const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
           lives.forEach(live => {
              const rawText = live.textContent || live.innerText || "";
-             const validParts = rawText.split('\n')
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-             lines.push(...validParts);
+             // Only process if it doesn't look like a giant UI dump
+             if (rawText.length < 500) {
+               const validParts = rawText.split('\n')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
+               lines.push(...validParts);
+             }
           });
-        }
-
-        // Extremely basic fallback if everything else fails: just look for blocks with text at the bottom of the screen
-        if (lines.length === 0) {
-           const bottomTextContainers = Array.from(document.querySelectorAll('div')).filter(d => {
-              const rect = d.getBoundingClientRect();
-              // Check if it's in the bottom half of the screen and has some text
-              return rect.bottom > window.innerHeight * 0.6 && d.innerText && d.innerText.length > 10 && d.childElementCount === 0;
-           });
-           
-           for (const container of bottomTextContainers) {
-             const rawText = container.textContent || "";
-             const validParts = rawText.split('\n')
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-             lines.push(...validParts);
-           }
         }
 
         // Final filter just in case
@@ -698,6 +716,8 @@ async function main() {
     let layoutChanged = false;
     let consecutiveMisses = 0;
     
+    await muteMicAndCamera(page); // Make sure we are muted after joining to stop fake device beep
+
     while (Date.now() < stopAt) {
       await clickCloseButtons(page);
       
