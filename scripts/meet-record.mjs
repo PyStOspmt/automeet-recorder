@@ -727,6 +727,9 @@ async function main() {
     });
 
     await page.evaluate(() => {
+      const recent = [];
+      const maxRecent = 1000;
+
       const exactIgnore = new Set([
         "language", "англійська", "английский", "english", "українська", "украинский", "ukrainian",
         "format_size", "розмір шрифту", "размер шрифта", "font size",
@@ -743,36 +746,54 @@ async function main() {
         "змінити макет", "change layout", "в центрі уваги", "spotlight"
       ];
 
-      let lastVisible = [];
-
       const emit = (text) => {
+        const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
+        if (!t) return;
+        
+        const key = t.toLowerCase();
+        if (recent.includes(key)) return;
+        recent.push(key);
+        if (recent.length > maxRecent) recent.shift();
+        
         // @ts-ignore
-        window.__onCaptionLine({ ts: Date.now(), text });
+        window.__onCaptionLine({ ts: Date.now(), text: t });
       };
 
       const scan = () => {
-         const text = document.body.innerText || "";
-         const currentLines = text.split('\n')
-             .map(s => s.trim())
-             .filter(s => s.length > 2);
+         const lines = [];
          
-         const validLines = [];
-         for (const l of currentLines) {
-             const ltxt = l.toLowerCase();
-             if (exactIgnore.has(ltxt) || partialIgnore.some(p => ltxt.includes(p))) continue;
-             validLines.push(l);
+         // 1. Target known caption classes/roles
+         const selectors = [
+           '.a4cQT', '.iTTPOb', '.CNusmb', 
+           '[jsname="t8xIwc"]', '[jsname="YSxPC"]', 
+           '[aria-live="polite"]', '[role="log"]'
+         ];
+         
+         const nodes = document.querySelectorAll(selectors.join(', '));
+         if (nodes.length > 0) {
+             nodes.forEach(node => {
+                 const text = node.innerText || node.textContent || "";
+                 text.split('\n').forEach(l => lines.push(l));
+             });
          }
 
-         const oldVisible = [...lastVisible];
-         for (const l of validLines) {
-             const idx = oldVisible.indexOf(l);
-             if (idx !== -1) {
-                 oldVisible.splice(idx, 1);
-             } else {
-                 emit(l);
-             }
+         // 2. Fallback: just read everything if specific nodes are empty or missing
+         if (lines.length === 0) {
+             const text = document.body.innerText || "";
+             text.split('\n').forEach(l => lines.push(l));
          }
-         lastVisible = validLines;
+
+         // Emit valid lines
+         for (const raw of lines) {
+             const l = raw.trim();
+             if (l.length < 2) continue;
+             
+             const ltxt = l.toLowerCase();
+             if (exactIgnore.has(ltxt)) continue;
+             if (partialIgnore.some(p => ltxt.includes(p))) continue;
+             
+             emit(l);
+         }
       };
 
       setInterval(scan, 1000);
