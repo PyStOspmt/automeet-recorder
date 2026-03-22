@@ -237,9 +237,24 @@ async function clickCloseButtons(page) {
       for (const btn of allBtns) {
         if (btn.querySelector('svg')) { // Often close buttons are just SVGs inside a button
            const alertParent = btn.closest('[role="alert"], [role="dialog"], .geSSfc');
-           if (alertParent && alertParent.textContent.includes('Мікрофон')) {
+           const alertText = String(alertParent?.textContent || '').toLowerCase();
+           if (alertParent && (alertText.includes('мікрофон') || alertText.includes('microphone') || alertText.includes('камеру не знайдено') || alertText.includes('camera not found') || alertText.includes('камера не найдена'))) {
              btn.click();
            }
+        }
+      }
+
+      const alerts = Array.from(document.querySelectorAll('[role="alert"], [role="dialog"], [data-is-toast="true"], .geSSfc, .jRlwIf'));
+      for (const alert of alerts) {
+        const text = String(alert.textContent || '').toLowerCase();
+        if (!text) continue;
+        if (text.includes('камеру не знайдено') || text.includes('camera not found') || text.includes('камера не найдена')) {
+          const closeBtn = alert.querySelector('button, [role="button"]');
+          if (closeBtn) {
+            closeBtn.click();
+          } else {
+            alert.remove();
+          }
         }
       }
       
@@ -288,10 +303,11 @@ async function setCaptionLanguageUkrainian(page) {
     // First try the quick on-screen dropdown if available
     const changedQuick = await page.evaluate(async () => {
       const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
-      const clickableNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      const languageTexts = ["англійська", "english", "английский", "українська", "ukrainian", "украинский"];
+      const clickableNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       const dropdown = clickableNodes.find(node => {
         const text = getText(node);
-        return text === "англійська" || text === "english" || text === "английский";
+        return languageTexts.includes(text);
       });
 
       if (!dropdown) return false;
@@ -299,15 +315,21 @@ async function setCaptionLanguageUkrainian(page) {
       dropdown.click();
       await new Promise(r => setTimeout(r, 1200));
 
-      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], div, span'));
-      const ukOption = optionNodes.find(node => getText(node).includes("українська"));
+      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], button, [role="button"], div, span'));
+      const ukOption = optionNodes.find(node => {
+        const text = getText(node);
+        return text === "українська" || text === "ukrainian" || text === "украинский";
+      });
       if (!ukOption) return false;
 
       ukOption.click();
       await new Promise(r => setTimeout(r, 1200));
 
-      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
-      return afterNodes.some(node => getText(node).includes("українська"));
+      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
+      return afterNodes.some(node => {
+        const text = getText(node);
+        return text === "українська" || text === "ukrainian" || text === "украинский";
+      });
     });
     
     if (changedQuick) return;
@@ -324,10 +346,10 @@ async function setCaptionLanguageUkrainian(page) {
     
     const changedInSettings = await page.evaluate(async () => {
       const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
-      const dropdownNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
+      const dropdownNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       const currentLang = dropdownNodes.find(node => {
         const text = getText(node);
-        return text === "англійська" || text === "english" || text === "английский";
+        return text === "англійська" || text === "english" || text === "английский" || text === "українська" || text === "ukrainian" || text === "украинский";
       });
 
       if (!currentLang) return false;
@@ -335,15 +357,21 @@ async function setCaptionLanguageUkrainian(page) {
       currentLang.click();
       await new Promise(r => setTimeout(r, 1200));
 
-      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], div, span'));
-      const ukOption = optionNodes.find(node => getText(node).includes("українська"));
+      const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], button, [role="button"], div, span'));
+      const ukOption = optionNodes.find(node => {
+        const text = getText(node);
+        return text === "українська" || text === "ukrainian" || text === "украинский";
+      });
       if (!ukOption) return false;
 
       ukOption.click();
       await new Promise(r => setTimeout(r, 1200));
 
-      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
-      return afterNodes.some(node => getText(node).includes("українська"));
+      const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
+      return afterNodes.some(node => {
+        const text = getText(node);
+        return text === "українська" || text === "ukrainian" || text === "украинский";
+      });
     });
     await wait(1000);
     
@@ -362,8 +390,11 @@ async function isCaptionLanguageUkrainian(page) {
   try {
     return await page.evaluate(() => {
       const getText = (el) => (el?.innerText || el?.textContent || "").trim().toLowerCase();
-      const nodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"], div, span'));
-      return nodes.some(node => getText(node).includes("українська"));
+      const nodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
+      return nodes.some(node => {
+        const text = getText(node);
+        return text === "українська" || text === "ukrainian" || text === "украинский";
+      });
     });
   } catch {
     return false;
