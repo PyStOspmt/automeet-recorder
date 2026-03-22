@@ -749,17 +749,18 @@ async function main() {
         "змінити макет", "change layout", "в центрі уваги", "spotlight"
       ];
 
-      const emit = (text) => {
-        const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
-        if (!t) return;
-        
-        const key = t.toLowerCase();
-        if (recent.includes(key)) return;
-        recent.push(key);
-        if (recent.length > maxRecent) recent.shift();
-        
+      let trackedLines = [];
+
+      const flushLine = (t) => {
         // @ts-ignore
-        window.__onCaptionLine({ ts: Date.now(), text: t });
+        window.__onCaptionLine({ ts: t.firstSeen, text: t.text });
+      };
+
+      const sharePrefix = (a, b) => {
+        const minLen = Math.min(a.length, b.length);
+        let overlap = 0;
+        while (overlap < minLen && a[overlap] === b[overlap]) overlap++;
+        return overlap > 15 || (overlap > 0 && overlap >= minLen * 0.7);
       };
 
       const scan = () => {
@@ -787,6 +788,7 @@ async function main() {
          }
 
          // Emit valid lines
+         const validVisible = [];
          for (const raw of lines) {
              const l = raw.trim();
              if (l.length < 2) continue;
@@ -795,11 +797,49 @@ async function main() {
              if (exactIgnore.has(ltxt)) continue;
              if (partialIgnore.some(p => ltxt.includes(p))) continue;
              
-             emit(l);
+             validVisible.push(l);
          }
+
+         const now = Date.now();
+         const matchedThisScan = new Set();
+
+         for (const l of validVisible) {
+             let matched = false;
+             for (const t of trackedLines) {
+                 if (matchedThisScan.has(t)) continue;
+
+                 if (l === t.text || l.startsWith(t.text) || t.text.startsWith(l) || sharePrefix(l, t.text)) {
+                     t.text = l; // update with latest correction
+                     t.lastSeen = now;
+                     matchedThisScan.add(t);
+                     matched = true;
+                     break;
+                 }
+             }
+             if (!matched) {
+                 const newTrack = { text: l, firstSeen: now, lastSeen: now };
+                 trackedLines.push(newTrack);
+                 matchedThisScan.add(newTrack);
+             }
+         }
+
+         // Prune and emit disappeared lines (not seen for >3 seconds)
+         trackedLines = trackedLines.filter(t => {
+             if (now - t.lastSeen > 3000) {
+                 flushLine(t);
+                 return false;
+             }
+             return true;
+         });
       };
 
       setInterval(scan, 1000);
+      
+      // @ts-ignore
+      window.__flushCaptions = () => {
+          trackedLines.forEach(t => flushLine(t));
+          trackedLines = [];
+      };
     });
 
     if (!skipRecording) {
