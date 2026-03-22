@@ -429,15 +429,18 @@ async function pinPresentation(page) {
       for (const tile of allTiles) {
         const text = (tile.innerText || '').toLowerCase();
         if (text.includes('презентація') || text.includes('presentation') || text.includes('презентация')) {
+          // Check if already pinned by looking for unpin button
+          const isPinned = tile.querySelector('button[aria-label*="unpin" i], button[aria-label*="відкріпит" i], button[aria-label*="открепит" i]');
+          if (isPinned) continue;
+
           const pinBtn = tile.querySelector('button[aria-label*="Закріпит" i], button[aria-label*="Pin" i], button[aria-label*="закріпит" i], button[aria-label*="pin" i]');
           if (pinBtn) {
-            const label = (pinBtn.getAttribute('aria-label') || '').toLowerCase();
-            if (!label.includes('unpin') && !label.includes('відкріпит') && !label.includes('открепит')) {
-              pinBtn.click();
-            }
+            pinBtn.click();
           } else {
-            // Fallback: double click the tile
-            tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+            // Fallback: double click the tile, but only if not already full screen
+            if (tile.getBoundingClientRect().width < window.innerWidth * 0.5) {
+              tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+            }
           }
         }
       }
