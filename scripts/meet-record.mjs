@@ -727,81 +727,62 @@ async function main() {
     });
 
     await page.evaluate(() => {
-      const recent = [];
-      const maxRecent = 500;
-
       const exactIgnore = new Set([
         "language", "англійська", "английский", "english", "українська", "украинский", "ukrainian",
         "format_size", "розмір шрифту", "размер шрифта", "font size",
         "circle", "колір шрифту", "цвет шрифта", "font color",
         "settings", "відкрити налаштування субтитрів", "открыть настройки субтитров", "caption settings",
-        "close", "закрити", "закрыть"
+        "close", "закрити", "закрыть", "покинути", "leave call", "leave meeting"
       ]);
 
       const partialIgnore = [
         "залишилося", "повернення", "вилучили", "додано на головний", 
         "оцініть якість", "has left", "has joined", "presentation", "is presenting",
-        "долучився", "залишив", "приєднався", "секунд", "покинув", "покинула"
+        "долучився", "залишив", "приєднався", "секунд", "покинув", "покинула",
+        "мікрофон", "камер", "microphone", "camera", "вимкнути", "turn off",
+        "змінити макет", "change layout", "в центрі уваги", "spotlight"
       ];
 
+      let lastVisible = [];
+
       const emit = (text) => {
-        const t = String(text ?? "").replaceAll("\u00A0", " ").trim();
-        if (!t) return;
-        
-        const key = t;
-        if (recent.includes(key)) return;
-        recent.push(key);
-        if (recent.length > maxRecent) recent.shift();
-        
         // @ts-ignore
-        window.__onCaptionLine({ ts: Date.now(), text: t });
+        window.__onCaptionLine({ ts: Date.now(), text });
       };
 
       const scan = () => {
-        const lines = [];
-        
-        let foundSpecific = false;
-        // Search specific subtitle classes ONLY to avoid grabbing UI elements
-        const textNodes = document.querySelectorAll('.iTTPOb, .CNusmb .a4cQT');
-        
-        if (textNodes.length > 0) {
-          textNodes.forEach(node => {
-            const rawText = node.textContent || node.innerText || "";
-            const validParts = rawText.split('\n')
-              .map(s => s.trim())
-              .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-            
-            if (validParts.length > 0) {
-              foundSpecific = true;
-              lines.push(validParts.join(' '));
-            }
-          });
-        }
-        
-        // Fallback to aria-live if no specific caption nodes found
-        if (!foundSpecific) {
-          const lives = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
-          lives.forEach(live => {
-             const rawText = live.textContent || live.innerText || "";
-             // Only process if it doesn't look like a giant UI dump
-             if (rawText.length < 500) {
-               const validParts = rawText.split('\n')
-                  .map(s => s.trim())
-                  .filter(s => s.length > 0 && !exactIgnore.has(s.toLowerCase()) && !partialIgnore.some(p => s.toLowerCase().includes(p)));
-               lines.push(...validParts);
-             }
-          });
-        }
+         const text = document.body.innerText || "";
+         const currentLines = text.split('\n')
+             .map(s => s.trim())
+             .filter(s => s.length > 2);
+         
+         const validLines = [];
+         for (const l of currentLines) {
+             const ltxt = l.toLowerCase();
+             if (exactIgnore.has(ltxt) || partialIgnore.some(p => ltxt.includes(p))) continue;
+             validLines.push(l);
+         }
 
-        // Final filter just in case
-        lines
-          .map(l => l.trim())
-          .filter(l => l.length > 0 && !exactIgnore.has(l.toLowerCase()) && !partialIgnore.some(p => l.toLowerCase().includes(p)))
-          .forEach(l => emit(l));
+         const oldVisible = [...lastVisible];
+         for (const l of validLines) {
+             const idx = oldVisible.indexOf(l);
+             if (idx !== -1) {
+                 oldVisible.splice(idx, 1);
+             } else {
+                 emit(l);
+             }
+         }
+         lastVisible = validLines;
       };
 
-      scan();
-      const obs = new MutationObserver(() => scan());
+      let timeout;
+      const debouncedScan = () => {
+          if (timeout) clearTimeout(timeout);
+          timeout = setTimeout(scan, 800);
+      };
+
+      debouncedScan();
+      const obs = new MutationObserver(debouncedScan);
       obs.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
 
