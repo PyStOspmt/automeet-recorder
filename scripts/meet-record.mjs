@@ -157,17 +157,7 @@ async function waitForAriaButtonContains(page, fragments, { timeoutMs = 60_000 }
 }
 
 async function ensureMicCamOff(page) {
-  const micBtn = await page.$('button[aria-label*="microphone" i]');
-  if (micBtn) {
-    const label = (await micBtn.evaluate((n) => n.getAttribute("aria-label"))) ?? "";
-    if (label.toLowerCase().includes("turn off")) await micBtn.click();
-  }
-
-  const camBtn = await page.$('button[aria-label*="camera" i]');
-  if (camBtn) {
-    const label = (await camBtn.evaluate((n) => n.getAttribute("aria-label"))) ?? "";
-    if (label.toLowerCase().includes("turn off")) await camBtn.click();
-  }
+  await muteMicAndCamera(page);
 }
 
 function startFfmpeg({ display, videoSize, outFile }) {
@@ -223,7 +213,7 @@ async function clickCloseButtons(page) {
       for (const btn of closeButtons) {
           const label = (btn.getAttribute('aria-label') || '').toLowerCase();
         // Look for close buttons on toasts and translate UI
-        if (label.includes('close') || label.includes('закрити') || label.includes('закрыть') || label.includes('dismiss')) {
+        if (label.includes('close') || label.includes('закрити') || label.includes('закрыть') || label.includes('dismiss') || label.includes('скасувати') || label.includes('cancel')) {
           // Check if it's inside a toast or dialog or the top bar
           const isToast = btn.closest('[role="alert"], [data-is-toast="true"], .geSSfc, .jRlwIf, #google_translate_element, [role="dialog"]');
           if (isToast) {
@@ -248,13 +238,22 @@ async function clickCloseButtons(page) {
       for (const alert of alerts) {
         const text = String(alert.textContent || '').toLowerCase();
         if (!text) continue;
-        if (text.includes('камеру не знайдено') || text.includes('camera not found') || text.includes('камера не найдена')) {
+        if (text.includes('камеру не знайдено') || text.includes('camera not found') || text.includes('камера не найдена') || text.includes('мікрофон') || text.includes('микрофон') || text.includes('microphone')) {
           const closeBtn = alert.querySelector('button, [role="button"]');
           if (closeBtn) {
             closeBtn.click();
           } else {
             alert.remove();
           }
+        }
+      }
+      
+      // Dismiss unwanted dialogs like "Mute all users?" by clicking Cancel
+      const dialogBtns = Array.from(document.querySelectorAll('[role="dialog"] button, .geSSfc button'));
+      for (const btn of dialogBtns) {
+        const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+        if (text === 'скасувати' || text === 'cancel' || text === 'отмена') {
+          btn.click();
         }
       }
       
@@ -282,13 +281,15 @@ async function muteMicAndCamera(page) {
       const btns = Array.from(document.querySelectorAll('button'));
       const micBtn = btns.find(b => {
         const l = (b.getAttribute('aria-label') || '').toLowerCase();
-        return l.includes('вимкнути мікрофон') || l.includes('turn off microphone');
+        if (l.includes('користувач') || l.includes('всіх') || l.includes('everyone') || l.includes('all')) return false;
+        return l.includes('вимкнути мікрофон') || l.includes('turn off microphone') || l.includes('отключить микрофон');
       });
       if (micBtn) micBtn.click();
       
       const camBtn = btns.find(b => {
         const l = (b.getAttribute('aria-label') || '').toLowerCase();
-        return l.includes('вимкнути камеру') || l.includes('turn off camera');
+        if (l.includes('користувач') || l.includes('всіх') || l.includes('everyone') || l.includes('all')) return false;
+        return l.includes('вимкнути камеру') || l.includes('turn off camera') || l.includes('отключить камеру');
       });
       if (camBtn) camBtn.click();
     });
@@ -307,7 +308,7 @@ async function setCaptionLanguageUkrainian(page) {
       const clickableNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       const dropdown = clickableNodes.find(node => {
         const text = getText(node);
-        return languageTexts.includes(text);
+        return text.length < 50 && languageTexts.some(lt => text.includes(lt));
       });
 
       if (!dropdown) return false;
@@ -318,9 +319,8 @@ async function setCaptionLanguageUkrainian(page) {
       const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], button, [role="button"], div, span'));
       const ukOption = optionNodes.find(node => {
         const text = getText(node);
-        return text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
-      if (!ukOption) return false;
 
       ukOption.click();
       await new Promise(r => setTimeout(r, 1200));
@@ -328,7 +328,7 @@ async function setCaptionLanguageUkrainian(page) {
       const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       return afterNodes.some(node => {
         const text = getText(node);
-        return text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
     });
     
@@ -349,7 +349,7 @@ async function setCaptionLanguageUkrainian(page) {
       const dropdownNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       const currentLang = dropdownNodes.find(node => {
         const text = getText(node);
-        return text === "англійська" || text === "english" || text === "английский" || text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("англійська") || text.includes("english") || text.includes("английский") || text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
 
       if (!currentLang) return false;
@@ -360,9 +360,8 @@ async function setCaptionLanguageUkrainian(page) {
       const optionNodes = Array.from(document.querySelectorAll('li, [role="option"], button, [role="button"], div, span'));
       const ukOption = optionNodes.find(node => {
         const text = getText(node);
-        return text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
-      if (!ukOption) return false;
 
       ukOption.click();
       await new Promise(r => setTimeout(r, 1200));
@@ -370,7 +369,7 @@ async function setCaptionLanguageUkrainian(page) {
       const afterNodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       return afterNodes.some(node => {
         const text = getText(node);
-        return text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
     });
     await wait(1000);
@@ -393,7 +392,7 @@ async function isCaptionLanguageUkrainian(page) {
       const nodes = Array.from(document.querySelectorAll('button, [role="button"], [role="combobox"]'));
       return nodes.some(node => {
         const text = getText(node);
-        return text === "українська" || text === "ukrainian" || text === "украинский";
+        return text.length < 50 && (text.includes("українська") || text.includes("ukrainian") || text.includes("украинский"));
       });
     });
   } catch {
@@ -428,20 +427,18 @@ async function pinPresentation(page) {
       // Or just find the presentation tile and click its pin button
       const allTiles = Array.from(document.querySelectorAll('[data-requested-participant-id]'));
       for (const tile of allTiles) {
-        if (tile.innerText.toLowerCase().includes('презентація') || tile.innerText.toLowerCase().includes('presentation')) {
-          const pinBtn = tile.querySelector('button[aria-label*="Закріпит"], button[aria-label*="Pin"], button[aria-label*="закріпит"], button[aria-label*="pin"]');
+        const text = (tile.innerText || '').toLowerCase();
+        if (text.includes('презентація') || text.includes('presentation') || text.includes('презентация')) {
+          const pinBtn = tile.querySelector('button[aria-label*="Закріпит" i], button[aria-label*="Pin" i], button[aria-label*="закріпит" i], button[aria-label*="pin" i]');
           if (pinBtn) {
-            pinBtn.click();
-            break;
+            const label = (pinBtn.getAttribute('aria-label') || '').toLowerCase();
+            if (!label.includes('unpin') && !label.includes('відкріпит') && !label.includes('открепит')) {
+              pinBtn.click();
+            }
+          } else {
+            // Fallback: double click the tile
+            tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
           }
-          // fallback: double click the tile to pin it
-          const dblClickEvent = new MouseEvent('dblclick', {
-            view: window,
-            bubbles: true,
-            cancelable: true
-          });
-          tile.dispatchEvent(dblClickEvent);
-          break;
         }
       }
     });
@@ -824,6 +821,8 @@ async function main() {
       if (!(await isCaptionLanguageUkrainian(page))) {
         await setCaptionLanguageUkrainian(page);
       }
+
+      await pinPresentation(page);
       
       // Try to change layout to spotlight once per call, doing it during the loop ensures we're fully in
       if (!layoutChanged) {
