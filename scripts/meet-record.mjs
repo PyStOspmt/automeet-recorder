@@ -484,24 +484,22 @@ async function main() {
       meta.name = 'google';
       meta.content = 'notranslate';
       document.head.appendChild(meta);
+      
+      if (window.location.hostname.includes("meet.google.com")) {
+        const style = document.createElement("style");
+        style.textContent = `
+          .skiptranslate, #google_translate_element { display: none !important; }
+          body { top: 0 !important; }
+          [data-is-toast="true"], [role="alert"], [role="alertdialog"], .geSSfc, .jRlwIf { 
+            display: none !important; 
+            opacity: 0 !important; 
+            visibility: hidden !important; 
+            pointer-events: none !important;
+          }
+        `;
+        document.documentElement.appendChild(style);
+      }
     });
-
-    if (session.meetUrl.includes("meet.google.com")) {
-      const style = document.createElement("style");
-      style.textContent = `
-        .skiptranslate, #google_translate_element { display: none !important; }
-        body { top: 0 !important; }
-        [data-is-toast="true"], [role="alert"], [role="alertdialog"], .geSSfc, .jRlwIf { 
-          display: none !important; 
-          opacity: 0 !important; 
-          visibility: hidden !important; 
-          pointer-events: none !important;
-        }
-      `;
-      document.documentElement.appendChild(style);
-      Object.defineProperty(navigator, 'language', { get: () => 'uk-UA' });
-      Object.defineProperty(navigator, 'languages', { get: () => ['uk-UA', 'uk', 'en-US'] });
-    }
 
     const cookiesEnv = optionalEnv("MEET_ACCOUNT_COOKIES");
     if (cookiesEnv) {
