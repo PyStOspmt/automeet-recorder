@@ -775,15 +775,7 @@ async function main() {
          lastVisible = validLines;
       };
 
-      let timeout;
-      const debouncedScan = () => {
-          if (timeout) clearTimeout(timeout);
-          timeout = setTimeout(scan, 800);
-      };
-
-      debouncedScan();
-      const obs = new MutationObserver(debouncedScan);
-      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+      setInterval(scan, 1000);
     });
 
     if (!skipRecording) {
